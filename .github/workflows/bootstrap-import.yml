@@ -21,21 +21,6 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Validate bootstrap payload
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f .bootstrap/project.zip.b64.part00
-          test -f .bootstrap/project.zip.b64.part06
-          test "$(find .bootstrap -maxdepth 1 -name 'project.zip.b64.part*' | wc -l)" -eq 7
-          python - <<'PY'
-          from pathlib import Path
-          import hashlib
-          for path in sorted(Path('.bootstrap').glob('project.zip.b64.part*')):
-              data = path.read_bytes()
-              print(path.name, len(data), hashlib.sha256(data).hexdigest())
-          PY
-
       - name: Reconstruct and authenticate source archive
         shell: bash
         run: |
@@ -46,10 +31,27 @@ jobs:
           import hashlib
           import re
 
-          files = sorted(Path('.bootstrap').glob('project.zip.b64.part*'))
-          assert len(files) == 7, f'expected 7 chunks, found {len(files)}'
-          encoded = b''.join(path.read_bytes() for path in files)
-          encoded = re.sub(rb'[^A-Za-z0-9+/=]', b'', encoded)
+          root = Path('.bootstrap')
+          files = [root / f'project.zip.b64.part{i:02d}' for i in range(7)]
+          assert all(path.is_file() for path in files), 'bootstrap chunk missing'
+          chunks = [path.read_bytes() for path in files]
+          chunks[1] = (root / 'repair-part01-a').read_bytes() + (root / 'repair-part01-b').read_bytes()
+          chunks[3] = (root / 'repair-part03-a').read_bytes() + (root / 'repair-part03-b').read_bytes()
+
+          expected = [
+              'fc2799ea7b1cc0aaa8ad5011c20be0de74445515d735306564908bf74db7f10a',
+              '1eaa39caef4318b7d957d8b9076d5f9d73dd649a3fdd89db697ac1c26ee30e56',
+              '35cdea0191b75de7dc683aa9a7d174500bd41096abaa28e059275c1af0e0cf35',
+              '1ca9223c668410b87fa18222f18beeccd0bd70ce548682fe157c484e9f526dcd',
+              '5ce2c1d010dd3c9d008feb395a4faa377afd05792ad6951051b10363bb3a174a',
+              'f3802bcdfdf4d050c753915a9a5de249f27e01605fd5b1799923616403ba7ab1',
+              '952c6368a1f06a2ad5c8c850815d1de8e3f91d2b9d517387fe60ed259841c6d9',
+          ]
+          for index, (chunk, digest) in enumerate(zip(chunks, expected)):
+              actual = hashlib.sha256(chunk).hexdigest()
+              assert actual == digest, f'chunk {index:02d}: {actual}'
+
+          encoded = re.sub(rb'[^A-Za-z0-9+/=]', b'', b''.join(chunks))
           archive = base64.b64decode(encoded, validate=True)
           assert len(archive) == 34283, f'unexpected archive size: {len(archive)}'
           digest = hashlib.sha256(archive).hexdigest()
