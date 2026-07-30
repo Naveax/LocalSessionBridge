@@ -1,11 +1,13 @@
 name: Bootstrap project import
 
 on:
-  push:
+  pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   import:
@@ -14,6 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
       - name: Reconstruct source archive
         shell: bash
