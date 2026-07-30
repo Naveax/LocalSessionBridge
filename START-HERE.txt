@@ -1,0 +1,24 @@
+1) PowerShell:
+   cd "$HOME\Downloads\Universal-Local-Session-Bridge-v1.0.0"
+
+2) 100 yerel kontrol:
+   python .\dist\session-bridge-v1.0.0.pyz selftest --repeat 10 --report .\selftest-100.json
+
+3) Broker:
+   python .\dist\session-bridge-v1.0.0.pyz serve
+
+4) Brave/Chrome:
+   brave://extensions veya chrome://extensions
+   Developer mode > Load unpacked > chromium-extension
+
+5) Firefox:
+   about:debugging#/runtime/this-firefox
+   Load Temporary Add-on > firefox-extension\manifest.json
+
+6) Eklenti popup'ında broker konsolundaki pair code ile eşleştir.
+
+7) URL ekle ve browser host iznini onayla.
+
+8) Kontrol:
+   python .\dist\session-bridge-v1.0.0.pyz list
+   python .\dist\session-bridge-v1.0.0.pyz get KAYIT_ADI --header-only
