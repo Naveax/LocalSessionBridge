@@ -1,0 +1,43 @@
+name: Bootstrap project import
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    if: ${{ hashFiles('.bootstrap/project.zip.b64.part*') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/project.zip.b64.part* | base64 --decode > /tmp/LocalSessionBridge-source.zip
+          mkdir -p /tmp/ulsb-source
+          unzip -q /tmp/LocalSessionBridge-source.zip -d /tmp/ulsb-source
+          cp -a /tmp/ulsb-source/. .
+      - name: Build and verify release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build_release.py
+          python broker/session_bridge.py selftest --repeat 10 --report dist/selftest-100.json
+          python scripts/verify.py
+      - name: Replace bootstrap payload with project source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap-import.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Import LocalSessionBridge v1.0.0 source and release artifacts"
+          git push origin HEAD:main
