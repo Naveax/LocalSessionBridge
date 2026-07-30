@@ -13,21 +13,32 @@ permissions:
 
 jobs:
   import:
-    if: ${{ hashFiles('.bootstrap/project.zip.b64.part*') != '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout bootstrap branch
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
+
+      - name: Validate bootstrap payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .bootstrap/project.zip.b64.part00
+          test -f .bootstrap/project.zip.b64.part06
+          test "$(find .bootstrap -maxdepth 1 -name 'project.zip.b64.part*' | wc -l)" -eq 7
+
       - name: Reconstruct source archive
         shell: bash
         run: |
           set -euo pipefail
           cat .bootstrap/project.zip.b64.part* | base64 --decode > /tmp/LocalSessionBridge-source.zip
+          unzip -t /tmp/LocalSessionBridge-source.zip
           mkdir -p /tmp/ulsb-source
           unzip -q /tmp/LocalSessionBridge-source.zip -d /tmp/ulsb-source
           cp -a /tmp/ulsb-source/. .
+
       - name: Build and verify release artifacts
         shell: bash
         run: |
@@ -35,6 +46,7 @@ jobs:
           python scripts/build_release.py
           python broker/session_bridge.py selftest --repeat 10 --report dist/selftest-100.json
           python scripts/verify.py
+
       - name: Replace bootstrap payload with project source
         shell: bash
         run: |
