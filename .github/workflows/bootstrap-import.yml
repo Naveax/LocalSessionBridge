@@ -29,11 +29,26 @@ jobs:
           test -f .bootstrap/project.zip.b64.part06
           test "$(find .bootstrap -maxdepth 1 -name 'project.zip.b64.part*' | wc -l)" -eq 7
 
-      - name: Reconstruct source archive
+      - name: Reconstruct and authenticate source archive
         shell: bash
         run: |
           set -euo pipefail
-          cat .bootstrap/project.zip.b64.part* | base64 --decode > /tmp/LocalSessionBridge-source.zip
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+          import hashlib
+          import re
+
+          files = sorted(Path('.bootstrap').glob('project.zip.b64.part*'))
+          assert len(files) == 7, f'expected 7 chunks, found {len(files)}'
+          encoded = b''.join(path.read_bytes() for path in files)
+          encoded = re.sub(rb'[^A-Za-z0-9+/=]', b'', encoded)
+          archive = base64.b64decode(encoded, validate=True)
+          assert len(archive) == 34283, f'unexpected archive size: {len(archive)}'
+          digest = hashlib.sha256(archive).hexdigest()
+          assert digest == 'f6e588315c86d595f1940df2742a9ee827aa1a1c9ed7629c23f0504f2525d3e3', digest
+          Path('/tmp/LocalSessionBridge-source.zip').write_bytes(archive)
+          PY
           unzip -t /tmp/LocalSessionBridge-source.zip
           mkdir -p /tmp/ulsb-source
           unzip -q /tmp/LocalSessionBridge-source.zip -d /tmp/ulsb-source
