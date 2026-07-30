@@ -28,6 +28,13 @@ jobs:
           test -f .bootstrap/project.zip.b64.part00
           test -f .bootstrap/project.zip.b64.part06
           test "$(find .bootstrap -maxdepth 1 -name 'project.zip.b64.part*' | wc -l)" -eq 7
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          for path in sorted(Path('.bootstrap').glob('project.zip.b64.part*')):
+              data = path.read_bytes()
+              print(path.name, len(data), hashlib.sha256(data).hexdigest())
+          PY
 
       - name: Reconstruct and authenticate source archive
         shell: bash
