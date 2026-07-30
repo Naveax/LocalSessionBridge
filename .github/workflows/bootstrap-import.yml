@@ -1,6 +1,8 @@
 name: Bootstrap project import
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
