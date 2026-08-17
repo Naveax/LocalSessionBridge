@@ -55,6 +55,33 @@ dağıtım için Mozilla imzası gerekir.
 
 **İzin iste ve ekle** düğmesine bas. Browser yalnız ilgili origin için izin ister.
 
+### Site bazlı Aç / Kapat
+
+Her kayıt artık bağımsız olarak açılıp kapatılabilir.
+
+- **Açık** kayıtlar başlangıçta, cookie değişiminde ve dakikalık periyodik kontrolde otomatik eşitlenir.
+- **Kapalı** kayıtlar otomatik eşitleme ve keep-alive çalıştırmaz.
+- Tekrar **Aç** seçildiğinde kayıt hemen bir kez eşitlenir.
+- **Tümünü aç**, **Tümünü kapat** ve **Tümünü eşitle** kontrolleri popup'ta bulunur.
+- Eski kayıtlar `enabled` alanı taşımıyorsa geriye dönük uyumluluk için açık kabul edilir.
+
+Kapatmak broker'daki son DPAPI şifreli snapshotı silmez. Snapshotı tamamen kaldırmak için CLI/API üzerinden session silme işlemi kullanılmalıdır.
+
+### Görünen kayıt bilgileri
+
+Popup her site için şunları gösterir:
+
+- Kayıt adı ve READY / ERROR / KAPALI durumu
+- URL
+- Tarayıcı türü
+- Tarayıcı/profil etiketi
+- Cookie sayısı
+- Son eşitleme zamanı
+- Keep-alive durumu ve varsa son HTTP sonucu
+- Son hata
+
+Brave algılaması `navigator.brave` üzerinden yapılır; Chrome, Edge, Opera, Firefox ve genel Chromium için de ayrı etiket üretilir.
+
 ## 5. Cookie header al
 
 Broker çalışırken:
@@ -107,10 +134,10 @@ Tüm şifreli yerel veriyi silme:
 
 Eklenti:
 
-- `cookies.onChanged` olayında tekrar eşitler.
-- Her dakika periyodik kontrol yapar.
-- Browser cookie rotasyonlarını otomatik brokera gönderir.
-- Keep-alive açıksa aynı-origin URL'ye credential dahil GET yapar.
+- Yalnız **açık** kayıtları `cookies.onChanged` olayında tekrar eşitler.
+- Yalnız **açık** kayıtları her dakika periyodik kontrol eder.
+- Browser cookie rotasyonlarını açık kayıtlar için otomatik brokera gönderir.
+- Keep-alive açıksa ve kayıt etkinse aynı-origin URL'ye credential dahil GET yapar.
 - Sunucu oturumu geçersiz kılarsa yeniden login gerekir.
 
 ## API
