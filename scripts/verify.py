@@ -93,10 +93,17 @@ def main() -> int:
         require('postJson("/v1/probe-jobs/result"' in background_js, f"{extension}: probe result submission missing")
         require("async function executeProbe" in background_js, f"{extension}: browser-native probe executor missing")
         require("async function executeTodoDiscovery" in background_js, f"{extension}: todo discovery executor missing")
-        require('method: "GET"' not in background_js or True, f"{extension}: placeholder")
         require("api.tabs.create" in background_js, f"{extension}: extension-owned probe tab missing")
         require("api.scripting.executeScript" in background_js, f"{extension}: probe DOM read missing")
         require("/delete" in background_js and "/complete" in background_js, f"{extension}: mutation-route discovery denylist missing")
+
+        if extension == "chromium-extension":
+            require(manifest.get("background", {}).get("service_worker") == "background-wrapper.js", "chromium-extension: probe wrapper is not active")
+            wrapper = (ROOT / extension / "background-wrapper.js").read_text(encoding="utf-8")
+            require('importScripts("background.js")' in wrapper, "chromium-extension: wrapper does not load main background")
+            require("captureProbeCookies" in wrapper, "chromium-extension: probe cookie snapshot missing")
+            require("restoreProbeCookies" in wrapper, "chromium-extension: probe cookie restore missing")
+            require("unwrappedExecuteProbeJob" in wrapper, "chromium-extension: probe executor wrapping missing")
 
         for forbidden in forbidden_popup_ids:
             require(forbidden not in popup_html, f"{extension}: legacy popup field remains: {forbidden}")
@@ -106,6 +113,7 @@ def main() -> int:
     if node:
         for path in (
             ROOT / "chromium-extension" / "background.js",
+            ROOT / "chromium-extension" / "background-wrapper.js",
             ROOT / "chromium-extension" / "popup.js",
             ROOT / "firefox-extension" / "background.js",
             ROOT / "firefox-extension" / "popup.js",
