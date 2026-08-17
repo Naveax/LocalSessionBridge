@@ -54,6 +54,17 @@ def build_broker_runtime(source: str) -> str:
         "metadata title",
     )
 
+    # Migration-safe registry semantics: if the same browser extension client
+    # pushes the same full URL using a newer internal session ID, keep only the
+    # newest ID. Different clients/browsers remain independent even for the
+    # same URL.
+    source = replace_once(
+        source,
+        "        with self.lock:\n            self.config[\"sessions\"][name] = metadata\n            self._save()\n        return dict(metadata)\n",
+        "        stale_snapshot_files = []\n        with self.lock:\n            for old_name, old_item in list(self.config[\"sessions\"].items()):\n                if old_name == name or not isinstance(old_item, dict):\n                    continue\n                if str(old_item.get(\"client_id\", \"\")) != snapshot[\"client_id\"]:\n                    continue\n                try:\n                    same_url = normalize_url(str(old_item.get(\"url\", \"\"))) == url\n                except BridgeError:\n                    same_url = False\n                if not same_url:\n                    continue\n                old_file = str(old_item.get(\"snapshot_file\", \"\"))\n                if old_file:\n                    stale_snapshot_files.append(old_file)\n                self.config[\"sessions\"].pop(old_name, None)\n            self.config[\"sessions\"][name] = metadata\n            self._save()\n        for stale_file in stale_snapshot_files:\n            try:\n                (self.snapshots_dir / stale_file).unlink()\n            except FileNotFoundError:\n                pass\n        return dict(metadata)\n",
+        "same-client same-url session pruning",
+    )
+
     # Self-test the exact regression that previously allowed only one client
     # to consume the pair code.
     source = replace_once(
@@ -61,6 +72,15 @@ def build_broker_runtime(source: str) -> str:
         "        client_token = json.loads(raw)[\"client_token\"]\n        passed.append(\"03-pair\")\n\n        payload = {\n",
         "        client_token = json.loads(raw)[\"client_token\"]\n        second_origin = \"chrome-extension://qrstuvwxyzabcdef\"\n        status2, raw2 = request(\n            port, \"POST\", \"/v1/pair\",\n            {\"code\": state.pair_code, \"client_id\": \"test-client-0002\", \"label\": \"Test 2\", \"browser\": \"Chromium\"},\n            ext_origin=second_origin,\n        )\n        if status2 != 200:\n            raise AssertionError(f\"second-pair={status2}:{raw2!r}\")\n        passed.append(\"03-pair-multi-client\")\n\n        payload = {\n",
         "multi-client selftest",
+    )
+
+    # Exercise migration cleanup: a legacy internal ID for the same client and
+    # full URL must be removed after the current ID is pushed again.
+    source = replace_once(
+        source,
+        "        if status == 200 and json.loads(raw)[\"cookie_count\"] == 3:\n            passed.append(\"05-push\")\n        else:\n            raise AssertionError(f\"push={status}:{raw!r}\")\n\n        status, _ = request(port, \"GET\", \"/v1/sessions\")\n",
+        "        if status != 200 or json.loads(raw)[\"cookie_count\"] != 3:\n            raise AssertionError(f\"push={status}:{raw!r}\")\n        legacy_payload = dict(payload)\n        legacy_payload[\"name\"] = \"legacy-session\"\n        legacy_status, legacy_raw = request(\n            port, \"POST\", \"/v1/push\", legacy_payload,\n            token=client_token, ext_origin=ext_origin, client_id=client_id,\n        )\n        if legacy_status != 200:\n            raise AssertionError(f\"legacy-push={legacy_status}:{legacy_raw!r}\")\n        current_status, current_raw = request(\n            port, \"POST\", \"/v1/push\", payload,\n            token=client_token, ext_origin=ext_origin, client_id=client_id,\n        )\n        if current_status != 200:\n            raise AssertionError(f\"current-repush={current_status}:{current_raw!r}\")\n        names = {item[\"name\"] for item in store.list_sessions()}\n        if \"example-session\" not in names or \"legacy-session\" in names:\n            raise AssertionError(f\"session-prune={sorted(names)}\")\n        passed.append(\"05-push-dedupe\")\n\n        status, _ = request(port, \"GET\", \"/v1/sessions\")\n",
+        "session pruning selftest",
     )
 
     source = replace_once(
