@@ -19,15 +19,20 @@ function siteEnabled(site) {
   return Boolean(site) && site.enabled !== false;
 }
 
-function canonicalSiteUrl(raw) {
+function normalizeSiteUrl(raw) {
   const url = new URL(raw);
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("Bu sayfa desteklenmiyor.");
-  return `${url.origin}/`;
+  url.hash = "";
+  url.search = "";
+  return url.toString();
+}
+
+function siteOrigin(raw) {
+  return new URL(normalizeSiteUrl(raw)).origin;
 }
 
 function permissionPattern(raw) {
-  const url = new URL(canonicalSiteUrl(raw));
-  return `${url.origin}/*`;
+  return `${siteOrigin(raw)}/*`;
 }
 
 function hash32(text) {
@@ -40,7 +45,7 @@ function hash32(text) {
 }
 
 function internalSessionName(url, clientId) {
-  const parsed = new URL(canonicalSiteUrl(url));
+  const parsed = new URL(normalizeSiteUrl(url));
   const host = parsed.hostname.replace(/[^A-Za-z0-9.-]/g, "-").slice(0, 64) || "site";
   return `site-${host}-${hash32(`${clientId}|${parsed.origin}`)}`.slice(0, 100);
 }
@@ -48,7 +53,7 @@ function internalSessionName(url, clientId) {
 async function activeSiteUrl() {
   const tabs = await api.tabs.query({active: true, currentWindow: true});
   const raw = tabs?.[0]?.url || "";
-  return raw ? canonicalSiteUrl(raw) : "";
+  return raw ? normalizeSiteUrl(raw) : "";
 }
 
 function formatTime(value) {
@@ -59,9 +64,9 @@ function formatTime(value) {
 }
 
 function findSite(sites, url) {
-  const wanted = canonicalSiteUrl(url);
+  const wanted = siteOrigin(url);
   return sites.find(site => {
-    try { return canonicalSiteUrl(site.url) === wanted; }
+    try { return siteOrigin(site.url) === wanted; }
     catch { return false; }
   });
 }
@@ -70,7 +75,7 @@ async function toggleSite(url) {
   const state = await getState({sites: [], clientId: "", profileLabel: "", pairedAt: ""});
   if (!state.pairedAt || !state.clientId) throw new Error("Önce broker bağlantısını kur.");
 
-  const normalized = canonicalSiteUrl(url);
+  const normalized = normalizeSiteUrl(url);
   let site = findSite(state.sites, normalized);
 
   if (siteEnabled(site)) {
@@ -120,10 +125,11 @@ function siteRow(url, site, isCurrent) {
   const info = document.createElement("div");
   info.className = "site-info";
 
+  const shownUrl = normalizeSiteUrl(isCurrent ? url : (site?.url || url));
   const title = document.createElement("strong");
   title.className = "site-url";
-  title.textContent = canonicalSiteUrl(url);
-  title.title = canonicalSiteUrl(url);
+  title.textContent = shownUrl;
+  title.title = shownUrl;
 
   const enabled = siteEnabled(site);
   const status = site ? (enabled ? (site.lastStatus || "PENDING") : "KAPALI") : "KAPALI";
@@ -172,21 +178,21 @@ async function render() {
   try { currentUrl = await activeSiteUrl(); }
   catch { currentUrl = ""; }
 
-  const rendered = new Set();
+  const renderedOrigins = new Set();
 
   if (currentUrl) {
     const currentSite = findSite(state.sites, currentUrl);
     container.append(siteRow(currentUrl, currentSite, true));
-    rendered.add(canonicalSiteUrl(currentUrl));
+    renderedOrigins.add(siteOrigin(currentUrl));
   }
 
   for (const site of state.sites) {
-    let url;
-    try { url = canonicalSiteUrl(site.url); }
+    let origin;
+    try { origin = siteOrigin(site.url); }
     catch { continue; }
-    if (rendered.has(url)) continue;
-    container.append(siteRow(url, site, false));
-    rendered.add(url);
+    if (renderedOrigins.has(origin)) continue;
+    container.append(siteRow(site.url, site, false));
+    renderedOrigins.add(origin);
   }
 
   if (!container.children.length) {
