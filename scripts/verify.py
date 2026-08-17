@@ -35,8 +35,11 @@ def main() -> int:
             timeout=120,
         )
         require(result.returncode == 0, result.stdout + result.stderr)
-        require(json.loads(report.read_text(encoding="utf-8"))["all_passed"] is True, "self-test report failed")
-    checks.append("30 local runtime checks")
+        report_data = json.loads(report.read_text(encoding="utf-8"))
+        require(report_data["all_passed"] is True, "self-test report failed")
+        for iteration in report_data["results"]:
+            require("03-pair-multi-client" in iteration["passed"], "reusable pair-code regression test missing")
+    checks.append("30 local runtime checks including multi-client pairing")
 
     forbidden_popup_ids = (
         'id="brokerUrl"',
@@ -59,11 +62,17 @@ def main() -> int:
         require(manifest["optional_host_permissions"] == ["http://*/*", "https://*/*"], f"{extension}: host permissions")
 
         popup_html = (ROOT / extension / "popup.html").read_text(encoding="utf-8")
+        popup_js = (ROOT / extension / "popup.js").read_text(encoding="utf-8")
+        background_js = (ROOT / extension / "background.js").read_text(encoding="utf-8")
         require('id="pairCode"' in popup_html, f"{extension}: pair code missing")
         require('id="sites"' in popup_html, f"{extension}: site list missing")
+        require("activeSiteInfo" in popup_js, f"{extension}: active page metadata discovery missing")
+        require('className = "site-name"' in popup_js, f"{extension}: automatic title UI missing")
+        require('className = "site-url"' in popup_js, f"{extension}: URL UI missing")
+        require('title: String(site.title || "")' in background_js, f"{extension}: title sync missing")
         for forbidden in forbidden_popup_ids:
             require(forbidden not in popup_html, f"{extension}: legacy popup field remains: {forbidden}")
-    checks.append("Simplified extension UI contract")
+    checks.append("Simplified Title + URL extension UI contract")
 
     node = shutil.which("node")
     if node:
@@ -79,7 +88,11 @@ def main() -> int:
 
     with zipfile.ZipFile(PYZ) as archive:
         require(archive.namelist() == ["__main__.py"], "PYZ structure")
-    checks.append("PYZ structure")
+        runtime_source = archive.read("__main__.py").decode("utf-8")
+    require(runtime_source.count("self.state.rotate_pair_code()") == 1, "pair code is still consumed after pairing")
+    require('title = str(payload.get("title", "")' in runtime_source, "broker title metadata missing")
+    require('"title": title' in runtime_source, "broker title persistence missing")
+    checks.append("Reusable pairing and title-aware broker runtime")
 
     source = BROKER.read_text(encoding="utf-8")
     require('value not in {"127.0.0.1", "::1", "localhost"}' in source, "loopback guard missing")
