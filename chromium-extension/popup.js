@@ -1,6 +1,7 @@
 const api = globalThis.browser ?? globalThis.chrome;
 const DEFAULT_BROKER = "http://127.0.0.1:17871";
 const UI_VERSION = 3;
+const KNOWN_MARKERS = ["H1-AUTH-A-PROJECT", "H1-AUTH-B-PROJECT"];
 const $ = id => document.getElementById(id);
 
 async function getState(defaults) { return await api.storage.local.get(defaults); }
@@ -24,17 +25,9 @@ function normalizeSiteUrl(raw) {
   return url.toString();
 }
 
-function siteKey(raw) {
-  return normalizeSiteUrl(raw);
-}
-
-function siteOrigin(raw) {
-  return new URL(normalizeSiteUrl(raw)).origin;
-}
-
-function permissionPattern(raw) {
-  return `${siteOrigin(raw)}/*`;
-}
+function siteKey(raw) { return normalizeSiteUrl(raw); }
+function siteOrigin(raw) { return new URL(normalizeSiteUrl(raw)).origin; }
+function permissionPattern(raw) { return `${siteOrigin(raw)}/*`; }
 
 function cleanTitle(raw, url) {
   const title = String(raw || "").trim().replace(/\s+/g, " ");
@@ -60,9 +53,7 @@ function internalSessionName(url, clientId) {
   return `site-${host}-${digest}`.slice(0, 100);
 }
 
-function siteEnabled(site) {
-  return Boolean(site) && site.enabled !== false;
-}
+function siteEnabled(site) { return Boolean(site) && site.enabled !== false; }
 
 function findSite(sites, url) {
   const wanted = siteKey(url);
@@ -107,7 +98,28 @@ async function activeSiteInfo() {
   const tab = tabs?.[0];
   if (!tab?.url) return null;
   const url = normalizeSiteUrl(tab.url);
-  return {url, title: cleanTitle(tab.title, url)};
+  return {tabId: tab.id, url, title: cleanTitle(tab.title, url)};
+}
+
+async function probeActiveTab(tabId) {
+  if (tabId === undefined || tabId === null || !api.scripting?.executeScript) return null;
+  try {
+    const result = await api.scripting.executeScript({
+      target: {tabId},
+      func: markers => {
+        const text = document.documentElement?.innerText || "";
+        return {
+          href: location.href,
+          title: document.title,
+          markers: markers.filter(marker => text.includes(marker))
+        };
+      },
+      args: [KNOWN_MARKERS]
+    });
+    return result?.[0]?.result || null;
+  } catch {
+    return null;
+  }
 }
 
 function formatTime(value) {
@@ -168,7 +180,7 @@ async function toggleSite(name) {
   await api.runtime.sendMessage({type: "SYNC_ONE", name: site.name});
 }
 
-function buildInfo(site, isCurrent) {
+function buildInfo(site, isCurrent, probe = null) {
   const info = document.createElement("div");
   info.className = "site-info";
 
@@ -188,16 +200,27 @@ function buildInfo(site, isCurrent) {
   meta.textContent = `${site.browser || browserLabel()} • ${status} • ${site.cookieCount ?? 0} cookie • ${formatTime(site.lastSync)}${isCurrent ? " • bu sekme" : ""}`;
 
   info.append(title, urlLine, meta);
+
+  if (isCurrent) {
+    const probeLine = document.createElement("div");
+    const markers = Array.isArray(probe?.markers) ? probe.markers : [];
+    probeLine.className = markers.length ? "site-probe probe-hit" : "site-probe";
+    probeLine.textContent = markers.length
+      ? `Browser-native marker: ${markers.join(", ")}`
+      : "Browser-native marker: yok";
+    info.append(probeLine);
+  }
+
   return info;
 }
 
-function savedSiteRow(site, isCurrent = false) {
+function savedSiteRow(site, isCurrent = false, probe = null) {
   const row = document.createElement("div");
   row.className = isCurrent ? "current-site" : "site";
 
   const head = document.createElement("div");
   head.className = "site-head";
-  head.append(buildInfo(site, isCurrent));
+  head.append(buildInfo(site, isCurrent, probe));
 
   const toggle = document.createElement("button");
   toggle.className = siteEnabled(site) ? "toggle-on" : "toggle-off";
@@ -217,7 +240,7 @@ function savedSiteRow(site, isCurrent = false) {
   return row;
 }
 
-function unsavedCurrentRow(info) {
+function unsavedCurrentRow(info, probe = null) {
   const row = document.createElement("div");
   row.className = "current-site";
 
@@ -233,7 +256,7 @@ function unsavedCurrentRow(info) {
     cookieCount: 0,
     lastSync: ""
   };
-  head.append(buildInfo(pseudoSite, true));
+  head.append(buildInfo(pseudoSite, true, probe));
 
   const add = document.createElement("button");
   add.className = "add";
@@ -273,6 +296,9 @@ async function render() {
   try { currentInfo = await activeSiteInfo(); }
   catch { currentInfo = null; }
 
+  let probe = null;
+  if (currentInfo) probe = await probeActiveTab(currentInfo.tabId);
+
   let currentSite = null;
   if (currentInfo) {
     currentSite = findSite(state.sites, currentInfo.url);
@@ -284,9 +310,9 @@ async function render() {
         currentSite.url = newUrl;
         await setState({sites: state.sites});
       }
-      currentContainer.append(savedSiteRow(currentSite, true));
+      currentContainer.append(savedSiteRow(currentSite, true, probe));
     } else {
-      currentContainer.append(unsavedCurrentRow(currentInfo));
+      currentContainer.append(unsavedCurrentRow(currentInfo, probe));
     }
   } else {
     const empty = document.createElement("div");
