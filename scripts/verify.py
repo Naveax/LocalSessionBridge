@@ -38,12 +38,32 @@ def main() -> int:
         require(json.loads(report.read_text(encoding="utf-8"))["all_passed"] is True, "self-test report failed")
     checks.append("30 local runtime checks")
 
+    forbidden_popup_ids = (
+        'id="brokerUrl"',
+        'id="profileLabel"',
+        'id="siteName"',
+        'id="siteUrl"',
+        'id="storeId"',
+        'id="keepaliveUrl"',
+        'id="keepaliveMinutes"',
+        'id="syncAllButton"',
+        'id="enableAllButton"',
+        'id="disableAllButton"',
+    )
+
     for extension in ("chromium-extension", "firefox-extension"):
         manifest = json.loads((ROOT / extension / "manifest.json").read_text(encoding="utf-8"))
         require(manifest["manifest_version"] == 3, f"{extension}: manifest version")
+        require("activeTab" in manifest["permissions"], f"{extension}: activeTab permission")
         require("cookies" in manifest["permissions"], f"{extension}: cookies permission")
         require(manifest["optional_host_permissions"] == ["http://*/*", "https://*/*"], f"{extension}: host permissions")
-    checks.append("Extension manifests")
+
+        popup_html = (ROOT / extension / "popup.html").read_text(encoding="utf-8")
+        require('id="pairCode"' in popup_html, f"{extension}: pair code missing")
+        require('id="sites"' in popup_html, f"{extension}: site list missing")
+        for forbidden in forbidden_popup_ids:
+            require(forbidden not in popup_html, f"{extension}: legacy popup field remains: {forbidden}")
+    checks.append("Simplified extension UI contract")
 
     node = shutil.which("node")
     if node:
