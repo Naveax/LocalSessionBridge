@@ -90,7 +90,8 @@ Set-Clipboard -Value $pairCode
 
 Write-Host "`n[7/7] Hazır." -ForegroundColor Green
 Write-Host "Broker: http://127.0.0.1:17871" -ForegroundColor Green
-Write-Host "Fresh pair code: $pairCode" -ForegroundColor Yellow
+Write-Host "Pair code: $pairCode" -ForegroundColor Yellow
+Write-Host "Aynı kod 10 dakika boyunca sınırsız sayıda yerel browser/extension eşleştirmesinde kullanılabilir." -ForegroundColor Green
 Write-Host "Pair code panoya kopyalandı." -ForegroundColor DarkGray
 
 if (-not $SkipBrowserPages) {
@@ -99,6 +100,6 @@ if (-not $SkipBrowserPages) {
 
 Write-Host ""
 Write-Host "Brave/Chrome extensions sayfasında Local Session Bridge için Reload'a bas." -ForegroundColor Yellow
-Write-Host "Yeni arayüzde manuel ad, profil, cookie-store, keep-alive veya site formu yok." -ForegroundColor Green
-Write-Host "Aktif sekmenin URL'si otomatik görünür; yalnız Aç/Kapat ile siteyi yönetirsin." -ForegroundColor Green
+Write-Host "Popup aktif sayfanın Title bilgisini otomatik ad olarak, URL'yi hemen altında gösterir." -ForegroundColor Green
+Write-Host "Manuel site adı/profil/cookie-store/keep-alive formu yok; yalnız site bazlı Aç/Kapat vardır." -ForegroundColor Green
 Write-Host "Tarayıcı, durum, cookie sayısı ve son eşitleme bilgileri otomatik gösterilir." -ForegroundColor Green
