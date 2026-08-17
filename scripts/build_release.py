@@ -54,6 +54,31 @@ def build_broker_runtime(source: str) -> str:
         "metadata title",
     )
 
+    # Expired persistent cookies must never be stored as usable credentials.
+    # Keep session cookies and only future-dated persistent cookies.
+    source = replace_once(
+        source,
+        "            expiry = item.get(\"expirationDate\")\n            if isinstance(expiry, (int, float)):\n                expiry = float(expiry)\n                if expiry > now:\n                    expiries.append(expiry)\n            else:\n                expiry = None\n                session_count += 1\n            clean.append({\n",
+        "            expiry = item.get(\"expirationDate\")\n            if isinstance(expiry, (int, float)):\n                expiry = float(expiry)\n                if expiry <= now:\n                    continue\n                expiries.append(expiry)\n            else:\n                expiry = None\n                session_count += 1\n            clean.append({\n",
+        "expired cookie filtering",
+    )
+
+    # Keep both earliest and latest expiry for diagnostics, but overall session
+    # viability is based on whether any valid credential remains. Session
+    # cookies make the session READY; persistent-only sessions use latest_expiry.
+    source = replace_once(
+        source,
+        "            \"earliest_expiry\": min(expiries) if expiries else None,\n            \"snapshot_file\": snapshot_path.name,\n",
+        "            \"earliest_expiry\": min(expiries) if expiries else None,\n            \"latest_expiry\": max(expiries) if expiries else None,\n            \"snapshot_file\": snapshot_path.name,\n",
+        "latest expiry metadata",
+    )
+    source = replace_once(
+        source,
+        "                expiry = row.get(\"earliest_expiry\")\n                if row.get(\"cookie_count\", 0) == 0:\n                    row[\"status\"] = \"EMPTY\"\n                elif expiry and float(expiry) <= time.time():\n                    row[\"status\"] = \"EXPIRED\"\n                elif expiry and float(expiry) <= time.time() + 3600:\n                    row[\"status\"] = \"EXPIRING_SOON\"\n                else:\n                    row[\"status\"] = \"READY\"\n",
+        "                now = time.time()\n                cookie_count = int(row.get(\"cookie_count\", 0) or 0)\n                session_cookie_count = int(row.get(\"session_cookie_count\", 0) or 0)\n                latest_expiry = row.get(\"latest_expiry\")\n                if latest_expiry is None:\n                    latest_expiry = row.get(\"earliest_expiry\")\n                if cookie_count == 0:\n                    row[\"status\"] = \"EMPTY\"\n                elif session_cookie_count > 0:\n                    row[\"status\"] = \"READY\"\n                elif latest_expiry is not None and float(latest_expiry) <= now:\n                    row[\"status\"] = \"EXPIRED\"\n                elif latest_expiry is not None and float(latest_expiry) <= now + 3600:\n                    row[\"status\"] = \"EXPIRING_SOON\"\n                else:\n                    row[\"status\"] = \"READY\"\n",
+        "session status semantics",
+    )
+
     # Migration-safe registry semantics: if the same browser extension client
     # pushes the same full URL using a newer internal session ID, keep only the
     # newest ID. Different clients/browsers remain independent even for the
@@ -74,13 +99,14 @@ def build_broker_runtime(source: str) -> str:
         "multi-client selftest",
     )
 
-    # Exercise migration cleanup: a legacy internal ID for the same client and
-    # full URL must be removed after the current ID is pushed again.
+    # Exercise migration cleanup and expiry semantics. The deliberately expired
+    # cookie in the fixture must be discarded; two session cookies remain and
+    # the resulting session must be READY.
     source = replace_once(
         source,
         "        if status == 200 and json.loads(raw)[\"cookie_count\"] == 3:\n            passed.append(\"05-push\")\n        else:\n            raise AssertionError(f\"push={status}:{raw!r}\")\n\n        status, _ = request(port, \"GET\", \"/v1/sessions\")\n",
-        "        if status != 200 or json.loads(raw)[\"cookie_count\"] != 3:\n            raise AssertionError(f\"push={status}:{raw!r}\")\n        legacy_payload = dict(payload)\n        legacy_payload[\"name\"] = \"legacy-session\"\n        legacy_status, legacy_raw = request(\n            port, \"POST\", \"/v1/push\", legacy_payload,\n            token=client_token, ext_origin=ext_origin, client_id=client_id,\n        )\n        if legacy_status != 200:\n            raise AssertionError(f\"legacy-push={legacy_status}:{legacy_raw!r}\")\n        current_status, current_raw = request(\n            port, \"POST\", \"/v1/push\", payload,\n            token=client_token, ext_origin=ext_origin, client_id=client_id,\n        )\n        if current_status != 200:\n            raise AssertionError(f\"current-repush={current_status}:{current_raw!r}\")\n        names = {item[\"name\"] for item in store.list_sessions()}\n        if \"example-session\" not in names or \"legacy-session\" in names:\n            raise AssertionError(f\"session-prune={sorted(names)}\")\n        passed.append(\"05-push-dedupe\")\n\n        status, _ = request(port, \"GET\", \"/v1/sessions\")\n",
-        "session pruning selftest",
+        "        if status != 200 or json.loads(raw)[\"cookie_count\"] != 2:\n            raise AssertionError(f\"push={status}:{raw!r}\")\n        first_rows = store.list_sessions()\n        first = next((item for item in first_rows if item.get(\"name\") == \"example-session\"), None)\n        if not first or first.get(\"status\") != \"READY\" or int(first.get(\"session_cookie_count\", 0)) != 2:\n            raise AssertionError(f\"expiry-status={first!r}\")\n        legacy_payload = dict(payload)\n        legacy_payload[\"name\"] = \"legacy-session\"\n        legacy_status, legacy_raw = request(\n            port, \"POST\", \"/v1/push\", legacy_payload,\n            token=client_token, ext_origin=ext_origin, client_id=client_id,\n        )\n        if legacy_status != 200:\n            raise AssertionError(f\"legacy-push={legacy_status}:{legacy_raw!r}\")\n        current_status, current_raw = request(\n            port, \"POST\", \"/v1/push\", payload,\n            token=client_token, ext_origin=ext_origin, client_id=client_id,\n        )\n        if current_status != 200:\n            raise AssertionError(f\"current-repush={current_status}:{current_raw!r}\")\n        names = {item[\"name\"] for item in store.list_sessions()}\n        if \"example-session\" not in names or \"legacy-session\" in names:\n            raise AssertionError(f\"session-prune={sorted(names)}\")\n        passed.append(\"05-push-dedupe-expiry\")\n\n        status, _ = request(port, \"GET\", \"/v1/sessions\")\n",
+        "session pruning and expiry selftest",
     )
 
     source = replace_once(
