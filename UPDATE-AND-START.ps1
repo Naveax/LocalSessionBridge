@@ -100,6 +100,6 @@ if (-not $SkipBrowserPages) {
 
 Write-Host ""
 Write-Host "Brave/Chrome extensions sayfasında Local Session Bridge için Reload'a bas." -ForegroundColor Yellow
-Write-Host "Popup aktif sayfanın Title bilgisini otomatik ad olarak, URL'yi hemen altında gösterir." -ForegroundColor Green
-Write-Host "Manuel site adı/profil/cookie-store/keep-alive formu yok; yalnız site bazlı Aç/Kapat vardır." -ForegroundColor Green
-Write-Host "Tarayıcı, durum, cookie sayısı ve son eşitleme bilgileri otomatik gösterilir." -ForegroundColor Green
+Write-Host "Her browser/profile kendi site listesini tutar; Brave ve Chrome listeleri birbirinden bağımsızdır." -ForegroundColor Green
+Write-Host "Aktif sekmede Title + URL otomatik görünür. Kayıt yoksa Ekle, kayıt varsa Aç/Kapat görünür." -ForegroundColor Green
+Write-Host "Aynı origin altındaki farklı tam URL'ler ayrı kayıt olur; uygulama seviyesinde site sayısı limiti yoktur." -ForegroundColor Green
