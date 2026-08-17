@@ -39,8 +39,8 @@ def main() -> int:
         require(report_data["all_passed"] is True, "self-test report failed")
         for iteration in report_data["results"]:
             require("03-pair-multi-client" in iteration["passed"], "reusable pair-code regression test missing")
-            require("05-push-dedupe" in iteration["passed"], "session-pruning regression test missing")
-    checks.append("Local runtime checks including multi-client pairing and session pruning")
+            require("05-push-dedupe-expiry" in iteration["passed"], "session pruning / expiry regression test missing")
+    checks.append("Local runtime checks including multi-client pairing, pruning, and expiry semantics")
 
     forbidden_popup_ids = (
         'id="brokerUrl"',
@@ -107,7 +107,11 @@ def main() -> int:
     require('"title": title' in runtime_source, "broker title persistence missing")
     require("stale_snapshot_files = []" in runtime_source, "same-client same-url session pruning missing")
     require('str(old_item.get("client_id", "")) != snapshot["client_id"]' in runtime_source, "session pruning lost client isolation")
-    checks.append("Reusable pairing, title-aware broker, and migration-safe session pruning")
+    require("if expiry <= now:" in runtime_source, "expired cookies are still retained")
+    require('"latest_expiry": max(expiries) if expiries else None' in runtime_source, "latest expiry metadata missing")
+    require("elif session_cookie_count > 0:" in runtime_source, "session-cookie readiness semantics missing")
+    require('row["status"] = "EXPIRING_SOON"' in runtime_source, "persistent expiry status missing")
+    checks.append("Reusable pairing, migration-safe pruning, and expiry-aware broker runtime")
 
     source = BROKER.read_text(encoding="utf-8")
     require('value not in {"127.0.0.1", "::1", "localhost"}' in source, "loopback guard missing")
