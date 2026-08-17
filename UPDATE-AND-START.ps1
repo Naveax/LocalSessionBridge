@@ -37,23 +37,27 @@ function Open-ExtensionPages {
 $python = Resolve-Python
 $pyz = Join-Path $Root "dist\session-bridge-v1.0.0.pyz"
 
-Write-Host "`n[1/6] LocalSessionBridge" -ForegroundColor Cyan
+Write-Host "`n[1/7] LocalSessionBridge" -ForegroundColor Cyan
 Write-Host "Root: $Root"
 
 if (-not $SkipPull) {
-    Write-Host "`n[2/6] GitHub main güncelleniyor..." -ForegroundColor Cyan
-    & git -C $Root pull --ff-only
+    Write-Host "`n[2/7] GitHub main güncelleniyor..." -ForegroundColor Cyan
+    & git -C $Root pull --ff-only origin main
     if ($LASTEXITCODE -ne 0) { throw "git pull başarısız oldu." }
 } else {
-    Write-Host "`n[2/6] Git pull atlandı." -ForegroundColor DarkGray
+    Write-Host "`n[2/7] Git pull atlandı." -ForegroundColor DarkGray
 }
 
-Write-Host "`n[3/6] Release artifactleri yeniden oluşturuluyor..." -ForegroundColor Cyan
+Write-Host "`n[3/7] Release artifactleri yeniden oluşturuluyor..." -ForegroundColor Cyan
 & $python (Join-Path $Root "scripts\build_release.py")
 if ($LASTEXITCODE -ne 0) { throw "build_release.py başarısız oldu." }
 if (-not (Test-Path $pyz)) { throw "Broker artifact bulunamadı: $pyz" }
 
-Write-Host "`n[4/6] Eski broker kapatılıyor..." -ForegroundColor Cyan
+Write-Host "`n[4/7] Kaynak ve extension doğrulanıyor..." -ForegroundColor Cyan
+& $python (Join-Path $Root "scripts\verify.py")
+if ($LASTEXITCODE -ne 0) { throw "verify.py başarısız oldu." }
+
+Write-Host "`n[5/7] Eski broker kapatılıyor..." -ForegroundColor Cyan
 $brokers = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
     Where-Object {
         $_.Name -match '^python(w)?\.exe$' -and
@@ -67,7 +71,7 @@ foreach ($proc in $brokers) {
 }
 Start-Sleep -Milliseconds 500
 
-Write-Host "`n[5/6] Broker başlatılıyor..." -ForegroundColor Cyan
+Write-Host "`n[6/7] Broker başlatılıyor..." -ForegroundColor Cyan
 Start-Process -FilePath $python -ArgumentList @("`"$pyz`"", "serve", "--quiet") -WorkingDirectory $Root -WindowStyle Hidden
 
 $ready = $false
@@ -84,7 +88,7 @@ if (-not $ready) { throw "Broker 127.0.0.1:17871 üzerinde READY olmadı." }
 $pairCode = (& $python $pyz pair-code | Out-String).Trim()
 Set-Clipboard -Value $pairCode
 
-Write-Host "`n[6/6] Hazır." -ForegroundColor Green
+Write-Host "`n[7/7] Hazır." -ForegroundColor Green
 Write-Host "Broker: http://127.0.0.1:17871" -ForegroundColor Green
 Write-Host "Fresh pair code: $pairCode" -ForegroundColor Yellow
 Write-Host "Pair code panoya kopyalandı." -ForegroundColor DarkGray
@@ -94,6 +98,7 @@ if (-not $SkipBrowserPages) {
 }
 
 Write-Host ""
-Write-Host "Brave/Chrome extensions sayfasında Local Session Bridge için bir kez Reload'a bas." -ForegroundColor Yellow
-Write-Host "Yeni popup'ta site bazlı Aç/Kapat, Tümünü aç/kapat/eşitle, tarayıcı/profil, cookie sayısı, son sync, keep-alive ve hata bilgileri görünür." -ForegroundColor Green
-Write-Host "Kapalı kayıtlar otomatik sync ve keep-alive çalıştırmaz." -ForegroundColor Green
+Write-Host "Brave/Chrome extensions sayfasında Local Session Bridge için Reload'a bas." -ForegroundColor Yellow
+Write-Host "Yeni arayüzde manuel ad, profil, cookie-store, keep-alive veya site formu yok." -ForegroundColor Green
+Write-Host "Aktif sekmenin URL'si otomatik görünür; yalnız Aç/Kapat ile siteyi yönetirsin." -ForegroundColor Green
+Write-Host "Tarayıcı, durum, cookie sayısı ve son eşitleme bilgileri otomatik gösterilir." -ForegroundColor Green
