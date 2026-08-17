@@ -47,6 +47,13 @@ function permissionPattern(raw) {
   return `${siteOrigin(raw)}/*`;
 }
 
+function cleanTitle(raw, url) {
+  const title = String(raw || "").trim().replace(/\s+/g, " ");
+  if (title) return title.slice(0, 300);
+  try { return new URL(url).hostname; }
+  catch { return "Site"; }
+}
+
 function hash32(text) {
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i += 1) {
@@ -62,10 +69,13 @@ function internalSessionName(url, clientId) {
   return `site-${host}-${hash32(`${clientId}|${parsed.origin}`)}`.slice(0, 100);
 }
 
-async function activeSiteUrl() {
+async function activeSiteInfo() {
   const tabs = await api.tabs.query({active: true, currentWindow: true});
-  const raw = tabs?.[0]?.url || "";
-  return raw ? normalizeSiteUrl(raw) : "";
+  const tab = tabs?.[0];
+  const raw = tab?.url || "";
+  if (!raw) return null;
+  const url = normalizeSiteUrl(raw);
+  return {url, title: cleanTitle(tab?.title, url)};
 }
 
 function formatTime(value) {
@@ -83,17 +93,20 @@ function findSite(sites, url) {
   });
 }
 
-async function toggleSite(url) {
+async function toggleSite(info) {
   const state = await getState({sites: [], clientId: "", profileLabel: "", pairedAt: ""});
   if (!state.pairedAt || !state.clientId) throw new Error("Önce broker bağlantısını kur.");
 
-  const normalized = normalizeSiteUrl(url);
+  const normalized = normalizeSiteUrl(info.url);
+  const title = cleanTitle(info.title, normalized);
   let site = findSite(state.sites, normalized);
 
   if (siteEnabled(site)) {
     site.enabled = false;
     site.lastStatus = "DISABLED";
     site.lastError = "";
+    site.title = title;
+    site.url = normalized;
     await setState({sites: state.sites});
     return;
   }
@@ -104,6 +117,7 @@ async function toggleSite(url) {
   if (!site) {
     site = {
       name: internalSessionName(normalized, state.clientId),
+      title,
       url: normalized,
       storeId: "",
       keepaliveUrl: "",
@@ -115,6 +129,7 @@ async function toggleSite(url) {
     };
     state.sites.push(site);
   } else {
+    site.title = title;
     site.url = normalized;
     site.enabled = true;
     site.browser = browserLabel();
@@ -129,21 +144,28 @@ async function toggleSite(url) {
   await api.runtime.sendMessage({type: "SYNC_ONE", name: site.name});
 }
 
-function siteRow(url, site, isCurrent) {
+function siteRow(info, site, isCurrent) {
   const row = document.createElement("div");
   row.className = "site";
 
   const head = document.createElement("div");
   head.className = "site-head";
 
-  const info = document.createElement("div");
-  info.className = "site-info";
+  const content = document.createElement("div");
+  content.className = "site-info";
 
-  const shownUrl = normalizeSiteUrl(isCurrent ? url : (site?.url || url));
+  const shownUrl = normalizeSiteUrl(info?.url || site?.url || "");
+  const shownTitle = cleanTitle(info?.title || site?.title, shownUrl);
+
   const title = document.createElement("strong");
-  title.className = "site-url";
-  title.textContent = shownUrl;
-  title.title = shownUrl;
+  title.className = "site-name";
+  title.textContent = shownTitle;
+  title.title = shownTitle;
+
+  const urlLine = document.createElement("div");
+  urlLine.className = "site-url";
+  urlLine.textContent = shownUrl;
+  urlLine.title = shownUrl;
 
   const enabled = siteEnabled(site);
   const status = site ? (enabled ? (site.lastStatus || "PENDING") : "KAPALI") : "KAPALI";
@@ -155,7 +177,7 @@ function siteRow(url, site, isCurrent) {
   meta.className = "site-meta";
   meta.textContent = `${browser} • ${status} • ${cookies} cookie • ${sync}${isCurrent ? " • bu sekme" : ""}`;
 
-  info.append(title, meta);
+  content.append(title, urlLine, meta);
 
   const toggle = document.createElement("button");
   toggle.className = enabled ? "toggle-on" : "toggle-off";
@@ -163,14 +185,14 @@ function siteRow(url, site, isCurrent) {
   toggle.onclick = async () => {
     try {
       $("siteStatus").textContent = "";
-      await toggleSite(url);
+      await toggleSite({url: shownUrl, title: shownTitle});
       await render();
     } catch (error) {
       $("siteStatus").textContent = `HATA: ${error.message || error}`;
     }
   };
 
-  head.append(info, toggle);
+  head.append(content, toggle);
   row.append(head);
   return row;
 }
@@ -190,16 +212,21 @@ async function render() {
   const container = $("sites");
   container.textContent = "";
 
-  let currentUrl = "";
-  try { currentUrl = await activeSiteUrl(); }
-  catch { currentUrl = ""; }
+  let currentInfo = null;
+  try { currentInfo = await activeSiteInfo(); }
+  catch { currentInfo = null; }
 
   const renderedOrigins = new Set();
 
-  if (currentUrl) {
-    const currentSite = findSite(state.sites, currentUrl);
-    container.append(siteRow(currentUrl, currentSite, true));
-    renderedOrigins.add(siteOrigin(currentUrl));
+  if (currentInfo) {
+    const currentSite = findSite(state.sites, currentInfo.url);
+    if (currentSite) {
+      currentSite.title = currentInfo.title;
+      currentSite.url = currentInfo.url;
+      await setState({sites: state.sites});
+    }
+    container.append(siteRow(currentInfo, currentSite, true));
+    renderedOrigins.add(siteOrigin(currentInfo.url));
   }
 
   for (const site of state.sites) {
@@ -207,7 +234,7 @@ async function render() {
     try { origin = siteOrigin(site.url); }
     catch { continue; }
     if (renderedOrigins.has(origin)) continue;
-    container.append(siteRow(site.url, site, false));
+    container.append(siteRow({url: site.url, title: site.title}, site, false));
     renderedOrigins.add(origin);
   }
 
