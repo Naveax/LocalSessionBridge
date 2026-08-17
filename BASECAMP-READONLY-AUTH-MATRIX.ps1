@@ -87,7 +87,7 @@ function Select-OriginSession {
         [Parameter(Mandatory)][string]$Origin
     )
 
-    $session = $Sessions |
+    return $Sessions |
         Where-Object {
             if ($_.client_id -ne $ClientId -or $_.status -ne "READY") {
                 return $false
@@ -101,8 +101,6 @@ function Select-OriginSession {
         } |
         Sort-Object updated_at -Descending |
         Select-Object -First 1
-
-    return $session
 }
 
 function Get-BridgeCookieHeader {
@@ -123,6 +121,35 @@ function Get-BridgeCookieHeader {
     return $value
 }
 
+function Add-BridgeCookiesToJar {
+    param(
+        [Parameter(Mandatory)][System.Net.CookieContainer]$Jar,
+        [Parameter(Mandatory)][string]$TargetUrl,
+        [Parameter(Mandatory)][string]$CookieHeader
+    )
+
+    $uri = [uri]$TargetUrl
+
+    foreach ($part in ($CookieHeader -split ';\s*')) {
+        if (-not $part) { continue }
+        $splitAt = $part.IndexOf('=')
+        if ($splitAt -le 0) { continue }
+
+        $name = $part.Substring(0, $splitAt).Trim()
+        $value = $part.Substring($splitAt + 1)
+        if (-not $name) { continue }
+
+        try {
+            $cookie = [System.Net.Cookie]::new($name, $value, "/", $uri.Host)
+            $cookie.Secure = ($uri.Scheme -eq "https")
+            $Jar.Add($uri, $cookie)
+        }
+        catch {
+            throw "Cookie jar seed başarısız: $name / $($uri.Host)"
+        }
+    }
+}
+
 function Resolve-RedirectUrl {
     param(
         [Parameter(Mandatory)][string]$CurrentUrl,
@@ -130,6 +157,19 @@ function Resolve-RedirectUrl {
     )
 
     return ([uri]::new([uri]$CurrentUrl, $Location)).AbsoluteUri
+}
+
+function Get-SecFetchSite {
+    param(
+        [string]$PreviousUrl,
+        [Parameter(Mandatory)][string]$CurrentUrl
+    )
+
+    if (-not $PreviousUrl) { return "none" }
+    if ((Get-Origin $PreviousUrl) -eq (Get-Origin $CurrentUrl)) {
+        return "same-origin"
+    }
+    return "cross-site"
 }
 
 function New-ChainResult {
@@ -157,7 +197,7 @@ function New-ChainResult {
     }
 }
 
-function Invoke-RedirectAwareReadonlyGet {
+function Invoke-BrowserLikeReadonlyGet {
     param(
         [Parameter(Mandatory)][string]$Actor,
         [Parameter(Mandatory)][string]$Owner,
@@ -167,12 +207,16 @@ function Invoke-RedirectAwareReadonlyGet {
         [Parameter(Mandatory)]$Sessions
     )
 
+    # Fresh jar per matrix cell. Baseline state can never bleed into cross tests.
+    $jar = [System.Net.CookieContainer]::new()
     $handler = [System.Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
-    $handler.UseCookies = $false
+    $handler.UseCookies = $true
+    $handler.CookieContainer = $jar
     $handler.AutomaticDecompression =
         [System.Net.DecompressionMethods]::GZip -bor
-        [System.Net.DecompressionMethods]::Deflate
+        [System.Net.DecompressionMethods]::Deflate -bor
+        [System.Net.DecompressionMethods]::Brotli
 
     $client = [System.Net.Http.HttpClient]::new($handler)
     $client.Timeout = [TimeSpan]::FromSeconds(30)
@@ -180,53 +224,37 @@ function Invoke-RedirectAwareReadonlyGet {
     $currentUrl = $StartUrl
     $previousUrl = ""
     $hops = @()
+    $seededOrigins = @{}
 
     try {
         for ($index = 0; $index -le $MaxRedirects; $index++) {
             $origin = Get-Origin $currentUrl
 
             if (-not $AllowedOrigins.ContainsKey($origin)) {
-                return New-ChainResult `
-                    -Actor $Actor `
-                    -Owner $Owner `
-                    -StartUrl $StartUrl `
-                    -FinalUrl $currentUrl `
-                    -Status 0 `
-                    -MarkerVisible $false `
-                    -Verdict "UNSUPPORTED_ORIGIN" `
-                    -Hops $hops
+                return New-ChainResult -Actor $Actor -Owner $Owner -StartUrl $StartUrl `
+                    -FinalUrl $currentUrl -Status 0 -MarkerVisible $false `
+                    -Verdict "UNSUPPORTED_ORIGIN" -Hops $hops
             }
 
-            $session = Select-OriginSession `
-                -Sessions $Sessions `
-                -ClientId $ClientId `
-                -Origin $origin
-
+            $session = Select-OriginSession -Sessions $Sessions -ClientId $ClientId -Origin $origin
             if (-not $session) {
                 $hops += [pscustomobject]@{
-                    Index       = $index
-                    Url         = $currentUrl
-                    Origin      = $origin
-                    SessionName = ""
-                    Status      = 0
-                    Location    = ""
-                    Note        = "READY companion session bulunamadı"
+                    Index = $index; Status = 0; Origin = $origin; SessionName = ""
+                    SetCookieCount = 0; JarCookieCount = $jar.Count
+                    Location = ""; Note = "READY companion session bulunamadı"
                 }
-
-                return New-ChainResult `
-                    -Actor $Actor `
-                    -Owner $Owner `
-                    -StartUrl $StartUrl `
-                    -FinalUrl $currentUrl `
-                    -Status 0 `
-                    -MarkerVisible $false `
-                    -Verdict "MISSING_SESSION" `
-                    -Hops $hops
+                return New-ChainResult -Actor $Actor -Owner $Owner -StartUrl $StartUrl `
+                    -FinalUrl $currentUrl -Status 0 -MarkerVisible $false `
+                    -Verdict "MISSING_SESSION" -Hops $hops
             }
 
-            $cookie = Get-BridgeCookieHeader `
-                -SessionName $session.name `
-                -TargetUrl $currentUrl
+            # Seed each origin exactly once from the browser snapshot. After that,
+            # Set-Cookie responses are allowed to evolve the jar just like a browser.
+            if (-not $seededOrigins.ContainsKey($origin)) {
+                $bridgeCookie = Get-BridgeCookieHeader -SessionName $session.name -TargetUrl $currentUrl
+                Add-BridgeCookiesToJar -Jar $jar -TargetUrl $currentUrl -CookieHeader $bridgeCookie
+                $seededOrigins[$origin] = $true
+            }
 
             $request = [System.Net.Http.HttpRequestMessage]::new(
                 [System.Net.Http.HttpMethod]::Get,
@@ -237,17 +265,26 @@ function Invoke-RedirectAwareReadonlyGet {
             try {
                 $null = $request.Headers.TryAddWithoutValidation(
                     "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
                 )
                 $null = $request.Headers.TryAddWithoutValidation(
                     "Accept",
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
                 )
+                $null = $request.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9")
                 $null = $request.Headers.TryAddWithoutValidation("Cache-Control", "no-cache")
                 $null = $request.Headers.TryAddWithoutValidation("Pragma", "no-cache")
-                $null = $request.Headers.TryAddWithoutValidation("Cookie", $cookie)
-
-                if ($previousUrl) {
+                $null = $request.Headers.TryAddWithoutValidation("Upgrade-Insecure-Requests", "1")
+                $null = $request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "document")
+                $null = $request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "navigate")
+                $null = $request.Headers.TryAddWithoutValidation(
+                    "Sec-Fetch-Site",
+                    (Get-SecFetchSite -PreviousUrl $previousUrl -CurrentUrl $currentUrl)
+                )
+                if (-not $previousUrl) {
+                    $null = $request.Headers.TryAddWithoutValidation("Sec-Fetch-User", "?1")
+                }
+                else {
                     $request.Headers.Referrer = [uri]$previousUrl
                 }
 
@@ -261,44 +298,37 @@ function Invoke-RedirectAwareReadonlyGet {
                     ""
                 }
 
+                $setCookieCount = 0
+                $setCookieValues = $null
+                if ($response.Headers.TryGetValues("Set-Cookie", [ref]$setCookieValues)) {
+                    $setCookieCount = @($setCookieValues).Count
+                }
+
                 $hops += [pscustomobject]@{
-                    Index       = $index
-                    Url         = $currentUrl
-                    Origin      = $origin
-                    SessionName = $session.name
-                    Status      = $status
-                    Location    = $location
-                    Note        = ""
+                    Index          = $index
+                    Status         = $status
+                    Origin         = $origin
+                    SessionName    = $session.name
+                    SetCookieCount = $setCookieCount
+                    JarCookieCount = $jar.Count
+                    Location       = $location
+                    Note           = ""
                 }
 
                 if ($status -in @(301, 302, 303, 307, 308)) {
                     if (-not $location) {
-                        return New-ChainResult `
-                            -Actor $Actor `
-                            -Owner $Owner `
-                            -StartUrl $StartUrl `
-                            -FinalUrl $currentUrl `
-                            -Status $status `
-                            -MarkerVisible $false `
-                            -Verdict "REDIRECT_WITHOUT_LOCATION" `
-                            -Hops $hops
+                        return New-ChainResult -Actor $Actor -Owner $Owner -StartUrl $StartUrl `
+                            -FinalUrl $currentUrl -Status $status -MarkerVisible $false `
+                            -Verdict "REDIRECT_WITHOUT_LOCATION" -Hops $hops
                     }
 
-                    $nextUrl = Resolve-RedirectUrl `
-                        -CurrentUrl $currentUrl `
-                        -Location $location
-
+                    $nextUrl = Resolve-RedirectUrl -CurrentUrl $currentUrl -Location $location
                     $nextOrigin = Get-Origin $nextUrl
+
                     if (-not $AllowedOrigins.ContainsKey($nextOrigin)) {
-                        return New-ChainResult `
-                            -Actor $Actor `
-                            -Owner $Owner `
-                            -StartUrl $StartUrl `
-                            -FinalUrl $nextUrl `
-                            -Status $status `
-                            -MarkerVisible $false `
-                            -Verdict "UNSUPPORTED_REDIRECT" `
-                            -Hops $hops
+                        return New-ChainResult -Actor $Actor -Owner $Owner -StartUrl $StartUrl `
+                            -FinalUrl $nextUrl -Status $status -MarkerVisible $false `
+                            -Verdict "UNSUPPORTED_REDIRECT" -Hops $hops
                     }
 
                     $previousUrl = $currentUrl
@@ -307,8 +337,16 @@ function Invoke-RedirectAwareReadonlyGet {
                 }
 
                 $markerVisible = $body.Contains($ExpectedMarker)
+                $finalUri = [uri]$currentUrl
+                $isSignin =
+                    $finalUri.Host -eq "launchpad.37signals.com" -and
+                    $finalUri.AbsolutePath -match '/signin(?:/|$)'
+
                 $verdict = if ($status -eq 200 -and $markerVisible) {
                     "VISIBLE"
+                }
+                elseif ($isSignin) {
+                    "AUTH_SIGNIN"
                 }
                 elseif ($status -in @(401, 403, 404)) {
                     "DENIED"
@@ -320,15 +358,9 @@ function Invoke-RedirectAwareReadonlyGet {
                     "OTHER"
                 }
 
-                return New-ChainResult `
-                    -Actor $Actor `
-                    -Owner $Owner `
-                    -StartUrl $StartUrl `
-                    -FinalUrl $currentUrl `
-                    -Status $status `
-                    -MarkerVisible $markerVisible `
-                    -Verdict $verdict `
-                    -Hops $hops
+                return New-ChainResult -Actor $Actor -Owner $Owner -StartUrl $StartUrl `
+                    -FinalUrl $currentUrl -Status $status -MarkerVisible $markerVisible `
+                    -Verdict $verdict -Hops $hops
             }
             finally {
                 if ($response) { $response.Dispose() }
@@ -336,15 +368,9 @@ function Invoke-RedirectAwareReadonlyGet {
             }
         }
 
-        return New-ChainResult `
-            -Actor $Actor `
-            -Owner $Owner `
-            -StartUrl $StartUrl `
-            -FinalUrl $currentUrl `
-            -Status 0 `
-            -MarkerVisible $false `
-            -Verdict "TOO_MANY_REDIRECTS" `
-            -Hops $hops
+        return New-ChainResult -Actor $Actor -Owner $Owner -StartUrl $StartUrl `
+            -FinalUrl $currentUrl -Status 0 -MarkerVisible $false `
+            -Verdict "TOO_MANY_REDIRECTS" -Hops $hops
     }
     finally {
         $client.Dispose()
@@ -360,7 +386,7 @@ function Show-Result {
         Format-Table -AutoSize
 
     $Result.Hops |
-        Select-Object Index, Status, Origin, SessionName, Location, Note |
+        Select-Object Index, Status, Origin, SessionName, SetCookieCount, JarCookieCount, Location, Note |
         Format-Table -AutoSize
 }
 
@@ -370,7 +396,7 @@ function Save-Results {
     $outDir = Join-Path $Root "basecamp-auth-results"
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    $path = Join-Path $outDir "redirect-aware-auth-matrix-$stamp.json"
+    $path = Join-Path $outDir "browser-like-auth-matrix-$stamp.json"
 
     @($Results) |
         ConvertTo-Json -Depth 8 |
@@ -384,25 +410,11 @@ Write-Host "`n[1/5] LocalSessionBridge session haritası hazırlanıyor..." -For
 $token = Get-BridgeToken
 $sessions = Get-BridgeSessions -Token $token
 
-$primaryA = Select-PrimarySession `
-    -Sessions $sessions `
-    -Browser $Actors.A.Browser `
-    -ProjectUrl $Actors.A.ProjectUrl
+$primaryA = Select-PrimarySession -Sessions $sessions -Browser $Actors.A.Browser -ProjectUrl $Actors.A.ProjectUrl
+$primaryB = Select-PrimarySession -Sessions $sessions -Browser $Actors.B.Browser -ProjectUrl $Actors.B.ProjectUrl
 
-$primaryB = Select-PrimarySession `
-    -Sessions $sessions `
-    -Browser $Actors.B.Browser `
-    -ProjectUrl $Actors.B.ProjectUrl
-
-$launchpadA = Select-OriginSession `
-    -Sessions $sessions `
-    -ClientId $primaryA.client_id `
-    -Origin "https://launchpad.37signals.com"
-
-$launchpadB = Select-OriginSession `
-    -Sessions $sessions `
-    -ClientId $primaryB.client_id `
-    -Origin "https://launchpad.37signals.com"
+$launchpadA = Select-OriginSession -Sessions $sessions -ClientId $primaryA.client_id -Origin "https://launchpad.37signals.com"
+$launchpadB = Select-OriginSession -Sessions $sessions -ClientId $primaryB.client_id -Origin "https://launchpad.37signals.com"
 
 if (-not $launchpadA) { throw "Chrome/A için READY Launchpad companion session yok." }
 if (-not $launchpadB) { throw "Brave/B için READY Launchpad companion session yok." }
@@ -414,63 +426,46 @@ Write-Host "B / Brave" -ForegroundColor Green
 Write-Host "  Basecamp : $($primaryB.name)"
 Write-Host "  Launchpad: $($launchpadB.name)"
 
-Write-Host "`n[2/5] BASELINE A -> A..." -ForegroundColor Cyan
-$baselineA = Invoke-RedirectAwareReadonlyGet `
-    -Actor $Actors.A.Label `
-    -Owner "A" `
-    -StartUrl $Actors.A.ProjectUrl `
-    -ExpectedMarker $Actors.A.Marker `
-    -ClientId $primaryA.client_id `
-    -Sessions $sessions
+Write-Host "`n[2/5] BASELINE A -> A (browser-like jar)..." -ForegroundColor Cyan
+$baselineA = Invoke-BrowserLikeReadonlyGet `
+    -Actor $Actors.A.Label -Owner "A" -StartUrl $Actors.A.ProjectUrl `
+    -ExpectedMarker $Actors.A.Marker -ClientId $primaryA.client_id -Sessions $sessions
 Show-Result $baselineA
 
 Start-Sleep -Milliseconds $DelayMs
 
-Write-Host "`n[3/5] BASELINE B -> B..." -ForegroundColor Cyan
-$baselineB = Invoke-RedirectAwareReadonlyGet `
-    -Actor $Actors.B.Label `
-    -Owner "B" `
-    -StartUrl $Actors.B.ProjectUrl `
-    -ExpectedMarker $Actors.B.Marker `
-    -ClientId $primaryB.client_id `
-    -Sessions $sessions
+Write-Host "`n[3/5] BASELINE B -> B (browser-like jar)..." -ForegroundColor Cyan
+$baselineB = Invoke-BrowserLikeReadonlyGet `
+    -Actor $Actors.B.Label -Owner "B" -StartUrl $Actors.B.ProjectUrl `
+    -ExpectedMarker $Actors.B.Marker -ClientId $primaryB.client_id -Sessions $sessions
 Show-Result $baselineB
 
 $results = @($baselineA, $baselineB)
 $baselineGood =
-    $baselineA.Status -eq 200 -and
-    $baselineA.MarkerVisible -and
-    $baselineB.Status -eq 200 -and
-    $baselineB.MarkerVisible
+    $baselineA.Status -eq 200 -and $baselineA.MarkerVisible -and
+    $baselineB.Status -eq 200 -and $baselineB.MarkerVisible
 
 if (-not $baselineGood) {
     $saved = Save-Results -Results $results
     Write-Host "`nBASELINE BAŞARISIZ. Cross-account GET çalıştırılmadı." -ForegroundColor Red
-    Write-Host "Redirect hopları yukarıda. Cookie/token değerleri loglanmadı." -ForegroundColor Yellow
+    Write-Host "Bu sürüm bridge cookie'lerini seed eder ve redirect Set-Cookie state'ini ayrı jar içinde taşır." -ForegroundColor Yellow
+    Write-Host "Cookie/token değerleri loglanmadı; yalnız cookie sayıları kaydedildi." -ForegroundColor Yellow
     Write-Host "Sonuç: $saved" -ForegroundColor Cyan
     exit 2
 }
 
 Write-Host "`n[4/5] CROSS A -> B..." -ForegroundColor Yellow
 Start-Sleep -Milliseconds $DelayMs
-$crossAtoB = Invoke-RedirectAwareReadonlyGet `
-    -Actor $Actors.A.Label `
-    -Owner "B" `
-    -StartUrl $Actors.B.ProjectUrl `
-    -ExpectedMarker $Actors.B.Marker `
-    -ClientId $primaryA.client_id `
-    -Sessions $sessions
+$crossAtoB = Invoke-BrowserLikeReadonlyGet `
+    -Actor $Actors.A.Label -Owner "B" -StartUrl $Actors.B.ProjectUrl `
+    -ExpectedMarker $Actors.B.Marker -ClientId $primaryA.client_id -Sessions $sessions
 Show-Result $crossAtoB
 
 Write-Host "`n[5/5] CROSS B -> A..." -ForegroundColor Yellow
 Start-Sleep -Milliseconds $DelayMs
-$crossBtoA = Invoke-RedirectAwareReadonlyGet `
-    -Actor $Actors.B.Label `
-    -Owner "A" `
-    -StartUrl $Actors.A.ProjectUrl `
-    -ExpectedMarker $Actors.A.Marker `
-    -ClientId $primaryB.client_id `
-    -Sessions $sessions
+$crossBtoA = Invoke-BrowserLikeReadonlyGet `
+    -Actor $Actors.B.Label -Owner "A" -StartUrl $Actors.A.ProjectUrl `
+    -ExpectedMarker $Actors.A.Marker -ClientId $primaryB.client_id -Sessions $sessions
 Show-Result $crossBtoA
 
 $results = @($baselineA, $baselineB, $crossAtoB, $crossBtoA)
@@ -483,11 +478,11 @@ $crossFinding =
 Write-Host ""
 if ($crossFinding) {
     Write-Host "POTANSİYEL AUTHORIZATION BYPASS: cross-account 200 + yabancı marker görüldü." -ForegroundColor Red
-    Write-Host "Bu noktada mutation testi yapma; read-only kanıtı incele." -ForegroundColor Yellow
+    Write-Host "Burada dur; mutation/POST/PATCH/DELETE yapma." -ForegroundColor Yellow
 }
 else {
     Write-Host "READ-ONLY PROJECT MATRIX: yabancı marker görünmedi." -ForegroundColor Green
-    Write-Host "Cross 200_NO_MARKER ise bunu erişim kanıtı sayma; hop zinciri ve final URL ile birlikte değerlendir." -ForegroundColor Yellow
+    Write-Host "Cross AUTH_SIGNIN veya 200_NO_MARKER finding değildir." -ForegroundColor Yellow
 }
 
 Write-Host "Sonuç: $saved" -ForegroundColor Cyan
