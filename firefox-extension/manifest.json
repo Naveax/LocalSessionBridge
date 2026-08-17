@@ -2,8 +2,9 @@
   "manifest_version": 3,
   "name": "Universal Local Session Bridge",
   "version": "1.0.0",
-  "description": "Kullan\u0131c\u0131n\u0131n izin verdi\u011fi sitelerin cookie snapshotlar\u0131n\u0131 yaln\u0131z yerel broker'a aktar\u0131r.",
+  "description": "Kullanıcının izin verdiği sitelerin cookie snapshotlarını yalnız yerel broker'a aktarır.",
   "permissions": [
+    "activeTab",
     "cookies",
     "storage",
     "alarms"
