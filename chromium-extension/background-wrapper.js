@@ -64,6 +64,103 @@ async function restoreProbeCookies(snapshot) {
   for (const cookie of snapshot) await setProbeCookie(cookie);
 }
 
+executeTodoDiscovery = async function(job) {
+  const start = new URL(job.url);
+  const parts = start.pathname.split("/").filter(Boolean);
+  if (parts.length < 3) throw new Error("Project URL çözümlenemedi.");
+
+  const accountId = parts[0];
+  const projectId = parts[parts.length - 1];
+  const preferred = String(job.preferred_marker || "");
+  const queue = [job.url];
+  const seen = new Set();
+  const fallback = [];
+  const tab = await api.tabs.create({url: "about:blank", active: false});
+
+  try {
+    while (queue.length && seen.size < 32) {
+      const current = queue.shift();
+      if (!safeDiscoveryUrl(current, accountId, projectId) || seen.has(current)) continue;
+      seen.add(current);
+
+      await navigateTab(tab.id, current);
+      const page = await readPage(tab.id, true);
+      const priority = [];
+      const secondary = [];
+
+      for (const anchor of page.anchors || []) {
+        const href = String(anchor.href || "");
+        const text = String(anchor.text || "").trim();
+        if (!safeDiscoveryUrl(href, accountId, projectId)) continue;
+
+        if (preferred && text.includes(preferred)) {
+          if (isTodoDetail(href)) {
+            return {
+              ok: true,
+              kind: "discover_todo",
+              found_url: href,
+              marker: preferred,
+              source: "controlled-marker-strict-detail"
+            };
+          }
+
+          if (!seen.has(href) && !queue.includes(href)) {
+            priority.unshift(href);
+          }
+          continue;
+        }
+
+        if (isTodoDetail(href) && text.length >= 4 && text.length <= 300) {
+          fallback.push({href, text});
+        }
+
+        if (/todo/i.test(href) || /to-?do/i.test(text)) priority.push(href);
+        else secondary.push(href);
+      }
+
+      for (const href of [...priority, ...secondary.slice(0, 6)]) {
+        if (!seen.has(href) && !queue.includes(href)) queue.push(href);
+      }
+    }
+
+    const generic = new Set(["to-do", "to-dos", "todo", "todos", "view", "open"]);
+    const used = new Set();
+
+    for (const candidate of fallback.slice(0, 30)) {
+      const key = `${candidate.href}|${candidate.text}`;
+      if (used.has(key) || generic.has(candidate.text.toLowerCase())) continue;
+      used.add(key);
+
+      await navigateTab(tab.id, candidate.href);
+      const page = await readPage(tab.id, false);
+
+      if (preferred && page.text.includes(preferred)) {
+        return {
+          ok: true,
+          kind: "discover_todo",
+          found_url: candidate.href,
+          marker: preferred,
+          source: "controlled-marker-detail-probe"
+        };
+      }
+
+      if (!preferred && page.text.includes(candidate.text)) {
+        return {
+          ok: true,
+          kind: "discover_todo",
+          found_url: candidate.href,
+          marker: candidate.text,
+          source: "first-existing-todo-detail"
+        };
+      }
+    }
+
+    throw new Error(`Tekil To-do detail resource bulunamadı: ${preferred || "marker yok"}`);
+  } finally {
+    await api.tabs.remove(tab.id).catch(() => {});
+  }
+};
+
 const unwrappedExecuteProbeJob = executeProbeJob;
 executeProbeJob = async function(job) {
   const cookieSnapshot = await captureProbeCookies();
