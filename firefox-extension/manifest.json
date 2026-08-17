@@ -5,6 +5,7 @@
   "description": "Kullanıcının izin verdiği sitelerin cookie snapshotlarını yalnız yerel broker'a aktarır.",
   "permissions": [
     "activeTab",
+    "tabs",
     "scripting",
     "cookies",
     "storage",
