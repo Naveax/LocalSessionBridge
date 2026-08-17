@@ -27,7 +27,7 @@ cd "$HOME\Downloads\LocalSessionBridge"
 python .\dist\session-bridge-v1.0.0.pyz serve
 ```
 
-The broker displays an eight-digit pairing code valid for ten minutes.
+The broker displays an eight-digit pairing code valid for ten minutes. The same code may pair any number of local browser/extension instances while that ten-minute TTL remains valid. Restarting the broker, expiry, or manual rotation replaces the code.
 
 ### Brave / Chrome / Chromium
 
@@ -46,16 +46,16 @@ The broker displays an eight-digit pairing code valid for ten minutes.
 
 ## Site controls
 
-The popup automatically detects the active HTTP/HTTPS tab. The page URL is the visible site identity; users no longer enter a separate record name, profile label, cookie store, keep-alive URL, or keep-alive interval.
+The popup automatically detects the active HTTP/HTTPS tab. Users no longer enter a separate record name, profile label, cookie store, keep-alive URL, or keep-alive interval.
 
-Each site has a single explicit control:
+Each site row displays the browser-provided page **Title** as its human-readable name, followed by the URL. Browser type, READY/ERROR/OFF state, cookie count, last synchronization time, and active-tab state are populated automatically.
+
+Each site has one explicit control:
 
 - **On** requests permission for that origin, synchronizes its cookie snapshot, and enables automatic updates.
 - **Off** stops automatic synchronization for that site.
 
-The popup automatically displays the URL, browser, READY/ERROR/OFF state, cookie count, last synchronization time, and whether the row is the active tab.
-
-An internal session identifier is derived automatically from the URL origin and extension client identity. It is not shown in the popup.
+An internal session identifier is derived automatically from the URL origin and extension client identity. It is not shown in the popup. The page Title and URL are also carried into broker metadata so external local tools can present the same human-readable identity without changing the stable internal key.
 
 ## Retrieve a session
 
@@ -86,7 +86,9 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 .\UPDATE-AND-START.ps1
 ```
 
-The script pulls `main`, rebuilds release artifacts, verifies Python/JavaScript and the simplified popup contract, restarts the broker, copies a fresh pairing code to the clipboard, and opens the Brave/Chrome extension pages.
+The script pulls `main`, builds the reusable-pair-code and title-aware broker runtime, rebuilds browser extension artifacts, runs Python/JavaScript/runtime verification, restarts the broker, copies the pairing code to the clipboard, and opens the Brave/Chrome extension pages.
+
+The runtime self-test explicitly pairs a second extension client with the same still-valid code to prevent the old single-client behavior from returning.
 
 Reload the unpacked extension once after an update.
 
@@ -113,8 +115,8 @@ Delete all encrypted local state:
 
 - Loopback-only bind guard: `127.0.0.1`, `::1`, or `localhost`.
 - Per-origin extension permission prompts.
-- One-time extension pairing code.
-- Separate random API and extension client tokens.
+- Ten-minute pairing code reusable by unlimited local extension instances during its TTL.
+- Separate random API and extension client tokens after pairing.
 - Extension-origin binding during pairing and pushes.
 - No cookie, header, request-body, or token values in HTTP logs.
 - Windows current-user DPAPI for API tokens and cookie snapshots.
