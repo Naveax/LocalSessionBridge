@@ -123,6 +123,7 @@ async function syncSite(site) {
   const result = await postJson("/v1/push", {
     client_id: state.clientId,
     name: site.name,
+    title: String(site.title || "").slice(0, 300),
     url: site.url,
     browser: currentBrowser,
     store_id: site.storeId || "",
