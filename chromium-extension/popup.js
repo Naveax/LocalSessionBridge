@@ -1,9 +1,21 @@
 const api = globalThis.browser ?? globalThis.chrome;
 const DEFAULT_BROKER = "http://127.0.0.1:17871";
+const UI_VERSION = 2;
 const $ = id => document.getElementById(id);
 
 async function getState(defaults) { return await api.storage.local.get(defaults); }
 async function setState(values) { await api.storage.local.set(values); }
+
+async function ensureUiVersion() {
+  const state = await getState({uiVersion: 0});
+  if (state.uiVersion === UI_VERSION) return;
+  await setState({
+    uiVersion: UI_VERSION,
+    clientToken: "",
+    pairedAt: "",
+    profileLabel: ""
+  });
+}
 
 function browserLabel() {
   const ua = navigator.userAgent || "";
@@ -107,6 +119,8 @@ async function toggleSite(url) {
     site.enabled = true;
     site.browser = browserLabel();
     site.profileLabel = state.profileLabel || browserLabel();
+    site.keepaliveUrl = "";
+    site.keepaliveMinutes = 0;
     site.lastStatus = "PENDING";
     site.lastError = "";
   }
@@ -162,14 +176,16 @@ function siteRow(url, site, isCurrent) {
 }
 
 async function render() {
-  const state = await getState({pairedAt: "", profileLabel: "", sites: []});
+  await ensureUiVersion();
+  const state = await getState({pairedAt: "", clientId: "", clientToken: "", profileLabel: "", sites: []});
   const browser = browserLabel();
+  const paired = Boolean(state.pairedAt && state.clientId && state.clientToken);
 
-  $("runtimeInfo").textContent = `${browser} • ${state.pairedAt ? "broker bağlı" : "broker bağlı değil"}`;
-  $("pairSection").hidden = Boolean(state.pairedAt);
-  $("siteSection").hidden = !state.pairedAt;
+  $("runtimeInfo").textContent = `${browser} • ${paired ? "broker bağlı" : "broker bağlı değil"}`;
+  $("pairSection").hidden = paired;
+  $("siteSection").hidden = !paired;
 
-  if (!state.pairedAt) return;
+  if (!paired) return;
 
   const container = $("sites");
   container.textContent = "";
