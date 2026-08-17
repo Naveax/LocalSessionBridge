@@ -12,11 +12,17 @@ async function setState(values) {
 }
 
 function browserLabel() {
-  const ua = navigator.userAgent;
+  const ua = navigator.userAgent || "";
+  if (navigator.brave) return "Brave";
   if (/Firefox/i.test(ua)) return "Firefox";
-  if (/Edg/i.test(ua)) return "Edge";
-  if (/Brave/i.test(ua)) return "Brave";
+  if (/Edg\//i.test(ua)) return "Edge";
+  if (/OPR\//i.test(ua)) return "Opera";
+  if (/Chrome\//i.test(ua)) return "Chrome";
   return "Chromium";
+}
+
+function siteEnabled(site) {
+  return site.enabled !== false;
 }
 
 async function postJson(path, body, authenticated = true) {
@@ -98,6 +104,12 @@ async function maybeKeepalive(site) {
 }
 
 async function syncSite(site) {
+  if (!siteEnabled(site)) {
+    site.lastStatus = "DISABLED";
+    site.lastError = "";
+    return;
+  }
+
   await maybeKeepalive(site);
   const details = {url: site.url};
   if (site.storeId) details.storeId = site.storeId;
@@ -106,12 +118,13 @@ async function syncSite(site) {
     const diff = (b.path || "/").length - (a.path || "/").length;
     return diff || String(a.name).localeCompare(String(b.name));
   });
-  const state = await getState({clientId: ""});
+  const state = await getState({clientId: "", profileLabel: ""});
+  const currentBrowser = browserLabel();
   const result = await postJson("/v1/push", {
     client_id: state.clientId,
     name: site.name,
     url: site.url,
-    browser: browserLabel(),
+    browser: currentBrowser,
     store_id: site.storeId || "",
     keepalive_url: site.keepaliveUrl || "",
     keepalive_minutes: Number(site.keepaliveMinutes || 0),
@@ -129,6 +142,9 @@ async function syncSite(site) {
       partitionKey: cookie.partitionKey
     }))
   });
+  site.enabled = true;
+  site.browser = currentBrowser;
+  site.profileLabel = state.profileLabel || "";
   site.lastStatus = "READY";
   site.lastSync = new Date().toISOString();
   site.cookieCount = result.cookie_count;
@@ -138,6 +154,11 @@ async function syncSite(site) {
 async function syncAll() {
   const current = await sites();
   for (const site of current) {
+    if (!siteEnabled(site)) {
+      site.lastStatus = "DISABLED";
+      site.lastError = "";
+      continue;
+    }
     try {
       await syncSite(site);
     } catch (error) {
@@ -154,6 +175,12 @@ async function syncOne(name) {
   const current = await sites();
   const site = current.find(item => item.name === name);
   if (!site) throw new Error("Kayıt bulunamadı.");
+  if (!siteEnabled(site)) {
+    site.lastStatus = "DISABLED";
+    site.lastError = "";
+    await saveSites(current);
+    return site;
+  }
   try {
     await syncSite(site);
   } catch (error) {
