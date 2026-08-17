@@ -1,4 +1,4 @@
-body{font:13px system-ui,sans-serif;margin:0;width:430px;background:#f5f6f8;color:#16181d}
+body{font:13px system-ui,sans-serif;margin:0;width:460px;background:#f5f6f8;color:#16181d}
 main{padding:12px}
 header{margin-bottom:10px}
 h1{font-size:18px;margin:0 0 4px}
@@ -6,17 +6,22 @@ h1{font-size:18px;margin:0 0 4px}
 section{background:#fff;border:1px solid #dfe3e8;border-radius:10px;padding:10px;margin-bottom:10px}
 .pair-row{display:flex;gap:7px}
 input{box-sizing:border-box;min-width:0;flex:1;padding:8px;border:1px solid #bec5ce;border-radius:7px}
-button{padding:8px 12px;border:0;border-radius:7px;background:#2357d9;color:#fff;cursor:pointer;font-weight:600}
+button{padding:8px 12px;border:0;border-radius:7px;background:#2357d9;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap}
 button:hover{filter:brightness(.96)}
 button.toggle-on{background:#8a5a14}
 button.toggle-off{background:#2f7a43}
+button.add{background:#2357d9}
 .status{min-height:16px;margin-top:6px;color:#8d2525;font-size:12px;white-space:pre-wrap}
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px}
+.saved-head{margin-top:12px;padding-top:10px;border-top:1px solid #e5e7eb}
+.count{font-size:11px;color:#616975;background:#eef1f5;border-radius:999px;padding:2px 7px}
 .site{padding:10px 0;border-top:1px solid #e5e7eb}
-.site:first-child{border-top:0;padding-top:0}
+.site:first-child{border-top:0;padding-top:4px}
 .site:last-child{padding-bottom:0}
+.current-site{padding:7px 0 2px}
 .site-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .site-info{min-width:0;flex:1}
 .site-name{display:block;font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .site-url{margin-top:2px;color:#4b5563;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .site-meta{margin-top:4px;color:#727986;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.empty{color:#616975;font-size:12px;padding:2px 0}
+.empty{color:#616975;font-size:12px;padding:6px 0}
