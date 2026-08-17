@@ -8,12 +8,11 @@ LocalSessionBridge consists of:
 - Chromium/Brave and Firefox extensions;
 - per-origin runtime permissions;
 - automatic synchronization through `cookies.onChanged` and periodic checks;
-- optional same-origin keep-alive requests;
 - Windows current-user DPAPI encryption for persisted snapshots;
 - a bearer-protected local API for retrieving a correctly filtered `Cookie` header.
 
 > [!WARNING]
-> Session cookies are credentials. Install this only on a computer you control, keep the local API token private, and register only accounts and systems you are authorized to access. The broker intentionally refuses LAN or internet binding.
+> Session cookies are credentials. Install this only on a computer you control, keep the local API token private, and enable only accounts and systems you are authorized to access. The broker intentionally refuses LAN or internet binding.
 
 ## Quick start
 
@@ -25,7 +24,6 @@ Requirements:
 
 ```powershell
 cd "$HOME\Downloads\LocalSessionBridge"
-python .\dist\session-bridge-v1.0.0.pyz selftest --repeat 10 --report .\selftest-100.json
 python .\dist\session-bridge-v1.0.0.pyz serve
 ```
 
@@ -37,7 +35,7 @@ The broker displays an eight-digit pairing code valid for ten minutes.
 2. Enable **Developer mode**.
 3. Select **Load unpacked**.
 4. Select the `chromium-extension` directory.
-5. Open the extension popup and pair it with the local broker.
+5. Open the extension popup, enter only the pairing code, and select **Connect**.
 
 ### Firefox Developer Edition
 
@@ -46,43 +44,31 @@ The broker displays an eight-digit pairing code valid for ten minutes.
 3. Select `firefox-extension/manifest.json`.
 4. Pair the extension with the broker.
 
-Firefox temporary add-ons must be loaded again after restarting the browser. Permanent distribution requires Mozilla signing.
+## Site controls
 
-## Register a site
+The popup automatically detects the active HTTP/HTTPS tab. The page URL is the visible site identity; users no longer enter a separate record name, profile label, cookie store, keep-alive URL, or keep-alive interval.
 
-In the extension popup, enter:
+Each site has a single explicit control:
 
-```text
-Name: example-account
-URL: https://example.com/account
-Cookie store ID: optional
-Keep-alive URL: optional, same origin only
-Keep-alive interval: 0 to disable, otherwise at least 5 minutes
-```
+- **On** requests permission for that origin, synchronizes its cookie snapshot, and enables automatic updates.
+- **Off** stops automatic synchronization for that site.
 
-The extension requests permission only for the selected origin. It then synchronizes matching cookies to the loopback broker.
+The popup automatically displays the URL, browser, READY/ERROR/OFF state, cookie count, last synchronization time, and whether the row is the active tab.
+
+An internal session identifier is derived automatically from the URL origin and extension client identity. It is not shown in the popup.
 
 ## Retrieve a session
 
 ```powershell
 python .\dist\session-bridge-v1.0.0.pyz list
-python .\dist\session-bridge-v1.0.0.pyz get example-account --header-only
 ```
 
-Path-specific filtering:
+The local CLI/API still uses the internal session identifier when retrieving a cookie header:
 
 ```powershell
-python .\dist\session-bridge-v1.0.0.pyz get example-account `
+python .\dist\session-bridge-v1.0.0.pyz get <session-id> `
   --header-only `
   --url "https://example.com/api/resource"
-```
-
-Local API example:
-
-```http
-GET /v1/sessions/example-account/cookie-header HTTP/1.1
-Host: 127.0.0.1:17871
-Authorization: Bearer <LOCAL_API_TOKEN>
 ```
 
 Retrieve the local API token only on the same Windows account:
@@ -91,9 +77,20 @@ Retrieve the local API token only on the same Windows account:
 python .\dist\session-bridge-v1.0.0.pyz token
 ```
 
-## Automatic startup
+## Update, build, verify, and start
 
 From the repository root:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\UPDATE-AND-START.ps1
+```
+
+The script pulls `main`, rebuilds release artifacts, verifies Python/JavaScript and the simplified popup contract, restarts the broker, copies a fresh pairing code to the clipboard, and opens the Brave/Chrome extension pages.
+
+Reload the unpacked extension once after an update.
+
+## Automatic startup
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -122,23 +119,8 @@ Delete all encrypted local state:
 - No cookie, header, request-body, or token values in HTTP logs.
 - Windows current-user DPAPI for API tokens and cookie snapshots.
 - Expired-cookie filtering, domain matching, path matching, and secure-cookie filtering.
-- Keep-alive disabled by default and limited to the registered origin.
 
 See [Security](SECURITY.md), [Architecture](docs/architecture.md), and [API](docs/api.md).
-
-## Verification
-
-The bundled v1.0.0 artifacts passed:
-
-- 10 isolated self-test iterations;
-- 10 checks per iteration;
-- 100/100 total runtime checks;
-- Python compilation;
-- Chromium and Firefox manifest validation;
-- JavaScript syntax validation;
-- local HTTP pairing, authentication, push, retrieval, filtering, and persistence tests.
-
-No external website was contacted during verification. Windows DPAPI and Task Scheduler operations run under the installing user's Windows account.
 
 ## Build release artifacts
 
