@@ -39,7 +39,8 @@ def main() -> int:
         require(report_data["all_passed"] is True, "self-test report failed")
         for iteration in report_data["results"]:
             require("03-pair-multi-client" in iteration["passed"], "reusable pair-code regression test missing")
-    checks.append("Local runtime checks including multi-client pairing")
+            require("05-push-dedupe" in iteration["passed"], "session-pruning regression test missing")
+    checks.append("Local runtime checks including multi-client pairing and session pruning")
 
     forbidden_popup_ids = (
         'id="brokerUrl"',
@@ -104,7 +105,9 @@ def main() -> int:
     require(runtime_source.count("self.state.rotate_pair_code()") == 1, "pair code is still consumed after pairing")
     require('title = str(payload.get("title", "")' in runtime_source, "broker title metadata missing")
     require('"title": title' in runtime_source, "broker title persistence missing")
-    checks.append("Reusable pairing and title-aware broker runtime")
+    require("stale_snapshot_files = []" in runtime_source, "same-client same-url session pruning missing")
+    require('str(old_item.get("client_id", "")) != snapshot["client_id"]' in runtime_source, "session pruning lost client isolation")
+    checks.append("Reusable pairing, title-aware broker, and migration-safe session pruning")
 
     source = BROKER.read_text(encoding="utf-8")
     require('value not in {"127.0.0.1", "::1", "localhost"}' in source, "loopback guard missing")
