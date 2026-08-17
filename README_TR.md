@@ -1,29 +1,26 @@
 # Universal Local Session Bridge 1.0.0
 
-Bu araç, kullanıcının tek tek izin verdiği URL origin'lerinin browser cookie
-snapshotlarını yalnız `127.0.0.1:17871` üzerinde çalışan yerel brokera aktarır.
+Bu araç, kullanıcının açıkça izin verdiği web sitelerinin browser cookie snapshotlarını yalnız `127.0.0.1:17871` üzerinde çalışan yerel brokera aktarır.
 
 ## Güvenlik modeli
 
 - Broker LAN veya internette dinleyemez.
-- Eklenti her site için browser izin penceresi gösterir.
+- Eklenti site iznini kullanıcıdan browser izin penceresiyle ister.
 - Cookie değerleri HTTP loglarına yazılmaz.
 - Snapshotlar Windows kullanıcısına bağlı DPAPI ile şifrelenir.
 - Broker API'si ayrı, rastgele token gerektirir.
 - Eklenti bir defalık 8 haneli pair code ile eşleştirilir.
 - Normal web origin'leri pair/push endpointlerinden reddedilir.
-- Keep-alive varsayılan olarak kapalıdır; minimum 5 dakikadır.
 - Tamamen biten oturum parola/MFA olmadan yeniden oluşturulamaz.
 
 ## 1. Broker
 
 ```powershell
-cd "$HOME\Downloads\Universal-Local-Session-Bridge-v1.0.0"
-python .\dist\session-bridge-v1.0.0.pyz selftest --repeat 10 --report .\selftest-100.json
+cd "$HOME\Downloads\LocalSessionBridge"
 python .\dist\session-bridge-v1.0.0.pyz serve
 ```
 
-Broker konsolunda 8 haneli `Pair code` görünür.
+Broker 10 dakika geçerli 8 haneli bir pair code üretir.
 
 ## 2. Brave / Chrome
 
@@ -31,56 +28,40 @@ Broker konsolunda 8 haneli `Pair code` görünür.
 2. **Developer mode** aç.
 3. **Load unpacked** seç.
 4. `chromium-extension` klasörünü seç.
-5. Eklenti popup'ında broker URL, profil etiketi ve pair code gir.
-6. **Eşleştir**.
+5. Eklenti popup'ına yalnız pair code'u girip **Bağla** seç.
+
+Broker URL'si, tarayıcı etiketi, profil etiketi, kayıt adı, cookie store ve keep-alive alanları kullanıcıdan istenmez.
 
 ## 3. Firefox Developer Edition
 
 1. `about:debugging#/runtime/this-firefox` aç.
 2. **Load Temporary Add-on** seç.
 3. `firefox-extension/manifest.json` seç.
+4. Eklenti popup'ına pair code'u girip bağlan.
 
-Geçici Firefox eklentisi browser kapanınca yeniden yüklenmelidir. Kalıcı
-dağıtım için Mozilla imzası gerekir.
+## 4. Site kullanımı
 
-## 4. Site ekle
+Eklenti aktif sekmenin HTTP/HTTPS URL'sini otomatik algılar.
 
-Örnek:
+Popup'ta site adı olarak doğrudan URL görünür. Kullanıcıdan ayrıca bir kayıt adı istenmez.
 
-- Kayıt adı: `hubspot-a`
-- URL: `https://app-na2.hubspot.com/contacts/...`
-- Cookie store ID: normal profilde boş bırakılabilir
-- Keep-alive URL: opsiyonel, aynı origin
-- Keep-alive dakika: `0` kapalı; açık ise minimum `5`
+Her site için yalnız iki temel durum vardır:
 
-**İzin iste ve ekle** düğmesine bas. Browser yalnız ilgili origin için izin ister.
+- **Aç**: ilgili origin için browser iznini ister, cookie snapshotını brokera gönderir ve otomatik eşitlemeyi etkinleştirir.
+- **Kapat**: o site için otomatik eşitlemeyi durdurur.
 
-### Site bazlı Aç / Kapat
+Açık siteler cookie değişiminde, browser başlangıcında ve dakikalık periyodik kontrolde otomatik eşitlenir. Kapalı siteler eşitlenmez.
 
-Her kayıt artık bağımsız olarak açılıp kapatılabilir.
+Popup otomatik olarak şunları gösterir:
 
-- **Açık** kayıtlar başlangıçta, cookie değişiminde ve dakikalık periyodik kontrolde otomatik eşitlenir.
-- **Kapalı** kayıtlar otomatik eşitleme ve keep-alive çalıştırmaz.
-- Tekrar **Aç** seçildiğinde kayıt hemen bir kez eşitlenir.
-- **Tümünü aç**, **Tümünü kapat** ve **Tümünü eşitle** kontrolleri popup'ta bulunur.
-- Eski kayıtlar `enabled` alanı taşımıyorsa geriye dönük uyumluluk için açık kabul edilir.
-
-Kapatmak broker'daki son DPAPI şifreli snapshotı silmez. Snapshotı tamamen kaldırmak için CLI/API üzerinden session silme işlemi kullanılmalıdır.
-
-### Görünen kayıt bilgileri
-
-Popup her site için şunları gösterir:
-
-- Kayıt adı ve READY / ERROR / KAPALI durumu
 - URL
 - Tarayıcı türü
-- Tarayıcı/profil etiketi
+- READY / ERROR / KAPALI durumu
 - Cookie sayısı
 - Son eşitleme zamanı
-- Keep-alive durumu ve varsa son HTTP sonucu
-- Son hata
+- Aktif sekme bilgisi
 
-Brave algılaması `navigator.brave` üzerinden yapılır; Chrome, Edge, Opera, Firefox ve genel Chromium için de ayrı etiket üretilir.
+Session için gereken dahili kimlik URL + browser extension client kimliğinden otomatik üretilir ve kullanıcı arayüzünde gösterilmez.
 
 ## 5. Cookie header al
 
@@ -88,30 +69,42 @@ Broker çalışırken:
 
 ```powershell
 python .\dist\session-bridge-v1.0.0.pyz list
-python .\dist\session-bridge-v1.0.0.pyz get hubspot-a --header-only
 ```
 
-Belirli path için:
+Yerel API ve CLI hâlâ dahili session kimliğini kullanır. Cookie header yalnız kayıtlı origin için üretilebilir.
 
 ```powershell
-python .\dist\session-bridge-v1.0.0.pyz get hubspot-a --header-only `
-  --url "https://app-na2.hubspot.com/api/example"
+python .\dist\session-bridge-v1.0.0.pyz get <session-id> --header-only `
+  --url "https://example.com/api/resource"
 ```
 
-Başka yerel araca API tokenı vermek için:
+Yerel API tokenı:
 
 ```powershell
-$env:ULSB_API_TOKEN = python .\dist\session-bridge-v1.0.0.pyz token
+python .\dist\session-bridge-v1.0.0.pyz token
 ```
 
-Yerel API:
+## 6. Güncelle / derle / doğrula / başlat
 
-```text
-GET http://127.0.0.1:17871/v1/sessions/hubspot-a/cookie-header
-Authorization: Bearer <LOCAL_API_TOKEN>
+Repo kökünde:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\UPDATE-AND-START.ps1
 ```
 
-## 6. Otomatik başlangıç
+Bu script:
+
+- GitHub `main` branch'ini günceller,
+- release artifactlerini yeniden oluşturur,
+- Python ve JavaScript doğrulamalarını çalıştırır,
+- broker'ı yeniden başlatır,
+- fresh pair code üretip panoya kopyalar,
+- Brave ve Chrome extension sayfalarını açar.
+
+Extension sayfasında güncellemeden sonra bir kez **Reload** gerekir.
+
+## Otomatik başlangıç
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -130,16 +123,6 @@ Tüm şifreli yerel veriyi silme:
 .\DELETE-ALL-LOCAL-DATA.ps1
 ```
 
-## Otomatik yenilenme
-
-Eklenti:
-
-- Yalnız **açık** kayıtları `cookies.onChanged` olayında tekrar eşitler.
-- Yalnız **açık** kayıtları her dakika periyodik kontrol eder.
-- Browser cookie rotasyonlarını açık kayıtlar için otomatik brokera gönderir.
-- Keep-alive açıksa ve kayıt etkinse aynı-origin URL'ye credential dahil GET yapar.
-- Sunucu oturumu geçersiz kılarsa yeniden login gerekir.
-
 ## API
 
 - `GET /v1/health`
@@ -153,7 +136,6 @@ Eklenti:
 ## Sınırlar
 
 - Partitioned cookie görünürlüğü browser'ın cookie store davranışına bağlıdır.
-- Keep-alive sliding-session yenilenmesini garanti etmez.
 - Browser kapalıyken yeni cookie üretilemez.
 - Broker son DPAPI şifreli snapshotı sunar.
 - Cookie header endpointi hassastır; API tokenını paylaşma.
