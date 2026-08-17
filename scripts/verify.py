@@ -39,7 +39,7 @@ def main() -> int:
         require(report_data["all_passed"] is True, "self-test report failed")
         for iteration in report_data["results"]:
             require("03-pair-multi-client" in iteration["passed"], "reusable pair-code regression test missing")
-    checks.append("30 local runtime checks including multi-client pairing")
+    checks.append("Local runtime checks including multi-client pairing")
 
     forbidden_popup_ids = (
         'id="brokerUrl"',
@@ -64,15 +64,27 @@ def main() -> int:
         popup_html = (ROOT / extension / "popup.html").read_text(encoding="utf-8")
         popup_js = (ROOT / extension / "popup.js").read_text(encoding="utf-8")
         background_js = (ROOT / extension / "background.js").read_text(encoding="utf-8")
+
         require('id="pairCode"' in popup_html, f"{extension}: pair code missing")
-        require('id="sites"' in popup_html, f"{extension}: site list missing")
-        require("activeSiteInfo" in popup_js, f"{extension}: active page metadata discovery missing")
+        require('id="currentSite"' in popup_html, f"{extension}: current-site add area missing")
+        require('id="siteCount"' in popup_html, f"{extension}: site counter missing")
+        require('id="sites"' in popup_html, f"{extension}: browser-local site list missing")
+
+        require("const UI_VERSION = 3" in popup_js, f"{extension}: unlimited registry migration missing")
+        require("function activeSiteInfo" in popup_js, f"{extension}: active page metadata discovery missing")
+        require("function siteKey" in popup_js, f"{extension}: full URL site key missing")
+        require("return siteKey(site.url) === wanted" in popup_js, f"{extension}: sites are not keyed by full URL")
+        require('add.textContent = "Ekle"' in popup_js, f"{extension}: explicit add button missing")
+        require("state.sites.push(site)" in popup_js, f"{extension}: multi-site append path missing")
+        require("tarayıcıya özel liste" in popup_js, f"{extension}: browser-local registry marker missing")
         require('className = "site-name"' in popup_js, f"{extension}: automatic title UI missing")
         require('className = "site-url"' in popup_js, f"{extension}: URL UI missing")
+        require("siteOrigin(site.url) === wanted" not in popup_js, f"{extension}: old one-site-per-origin bug returned")
         require('title: String(site.title || "")' in background_js, f"{extension}: title sync missing")
+
         for forbidden in forbidden_popup_ids:
             require(forbidden not in popup_html, f"{extension}: legacy popup field remains: {forbidden}")
-    checks.append("Simplified Title + URL extension UI contract")
+    checks.append("Unlimited browser-local Title + URL registry contract")
 
     node = shutil.which("node")
     if node:
