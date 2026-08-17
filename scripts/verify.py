@@ -59,6 +59,7 @@ def main() -> int:
         manifest = json.loads((ROOT / extension / "manifest.json").read_text(encoding="utf-8"))
         require(manifest["manifest_version"] == 3, f"{extension}: manifest version")
         require("activeTab" in manifest["permissions"], f"{extension}: activeTab permission")
+        require("scripting" in manifest["permissions"], f"{extension}: scripting permission")
         require("cookies" in manifest["permissions"], f"{extension}: cookies permission")
         require(manifest["optional_host_permissions"] == ["http://*/*", "https://*/*"], f"{extension}: host permissions")
 
@@ -72,7 +73,11 @@ def main() -> int:
         require('id="sites"' in popup_html, f"{extension}: browser-local site list missing")
 
         require("const UI_VERSION = 3" in popup_js, f"{extension}: unlimited registry migration missing")
+        require("const KNOWN_MARKERS" in popup_js, f"{extension}: known marker registry missing")
         require("function activeSiteInfo" in popup_js, f"{extension}: active page metadata discovery missing")
+        require("function probeActiveTab" in popup_js, f"{extension}: browser-native DOM probe missing")
+        require("api.scripting.executeScript" in popup_js, f"{extension}: active-tab scripting probe missing")
+        require("Browser-native marker:" in popup_js, f"{extension}: probe result UI missing")
         require("function siteKey" in popup_js, f"{extension}: full URL site key missing")
         require("return siteKey(site.url) === wanted" in popup_js, f"{extension}: sites are not keyed by full URL")
         require('add.textContent = "Ekle"' in popup_js, f"{extension}: explicit add button missing")
@@ -85,7 +90,7 @@ def main() -> int:
 
         for forbidden in forbidden_popup_ids:
             require(forbidden not in popup_html, f"{extension}: legacy popup field remains: {forbidden}")
-    checks.append("Unlimited browser-local Title + URL registry contract")
+    checks.append("Unlimited browser-local registry plus browser-native DOM probe contract")
 
     node = shutil.which("node")
     if node:
