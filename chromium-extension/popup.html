@@ -8,37 +8,22 @@
 </head>
 <body>
   <main>
-    <h1>Local Session Bridge</h1>
-    <section>
-      <h2>Broker eşleştirme</h2>
-      <label>Broker URL<input id="brokerUrl" value="http://127.0.0.1:17871"></label>
-      <label>Tarayıcı/profil etiketi<input id="profileLabel" placeholder="Brave A / Chrome B"></label>
-      <label>8 haneli pair code<input id="pairCode" inputmode="numeric" maxlength="8"></label>
-      <button id="pairButton">Eşleştir</button>
-      <div id="pairStatus" class="status"></div>
+    <header>
+      <h1>Local Session Bridge</h1>
       <div id="runtimeInfo" class="runtime-info"></div>
-    </section>
-    <section>
-      <h2>Site ekle</h2>
-      <label>Kayıt adı<input id="siteName" placeholder="basecamp-a"></label>
-      <label>URL<input id="siteUrl" placeholder="https://example.com/account"></label>
-      <label>Cookie store ID (opsiyonel)<input id="storeId"></label>
-      <label>Keep-alive URL (aynı origin, opsiyonel)<input id="keepaliveUrl"></label>
-      <label>Keep-alive dakika (0=kapalı, min 5)<input id="keepaliveMinutes" type="number" min="0" value="0"></label>
-      <button id="addButton">İzin iste ve ekle</button>
-      <div id="addStatus" class="status"></div>
-    </section>
-    <section>
-      <div class="row records-header">
-        <h2>Kayıtlar</h2>
-        <div class="toolbar">
-          <button id="enableAllButton" class="secondary">Tümünü aç</button>
-          <button id="disableAllButton" class="secondary">Tümünü kapat</button>
-          <button id="syncAllButton">Tümünü eşitle</button>
-        </div>
+    </header>
+
+    <section id="pairSection" class="pair-section">
+      <div class="pair-row">
+        <input id="pairCode" inputmode="numeric" maxlength="8" placeholder="8 haneli pair code" autocomplete="off">
+        <button id="pairButton">Bağla</button>
       </div>
-      <div class="hint">Kapalı kayıtlar cookie değişiminde, başlangıçta ve periyodik kontrolde eşitlenmez. Broker son şifreli snapshotı silinmediği sürece tutmaya devam eder.</div>
+      <div id="pairStatus" class="status"></div>
+    </section>
+
+    <section id="siteSection" hidden>
       <div id="sites"></div>
+      <div id="siteStatus" class="status"></div>
     </section>
   </main>
   <script src="popup.js"></script>
