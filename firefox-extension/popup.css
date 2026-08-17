@@ -1,9 +1,18 @@
-body{font:13px system-ui,sans-serif;margin:0;width:430px;background:#f5f6f8;color:#16181d}
+body{font:13px system-ui,sans-serif;margin:0;width:520px;background:#f5f6f8;color:#16181d}
 main{padding:12px}h1{font-size:18px;margin:0 0 10px}h2{font-size:14px;margin:0 0 8px}
 section{background:#fff;border:1px solid #dfe3e8;border-radius:8px;padding:10px;margin-bottom:10px}
 label{display:block;margin:7px 0}input{box-sizing:border-box;width:100%;padding:7px;border:1px solid #bec5ce;border-radius:5px}
 button{padding:7px 10px;border:0;border-radius:5px;background:#2357d9;color:#fff;cursor:pointer}
+button:hover{filter:brightness(.96)}button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+button.secondary{background:#e9edf5;color:#1f2937;border:1px solid #cfd6e1}
+button.toggle-off{background:#3b7b48}button.toggle-on{background:#8a5a14}
 button.danger{background:#a52a2a}.status{min-height:18px;margin-top:6px;white-space:pre-wrap}
-.row{display:flex;align-items:center;justify-content:space-between}.site{border-top:1px solid #e5e7eb;padding:8px 0}
-.site:first-child{border-top:0}.site strong{display:block}.muted{color:#616975;font-size:12px;white-space:pre-wrap}
-.actions{display:flex;gap:6px;margin-top:5px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px}.records-header{align-items:flex-start}
+.toolbar{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.toolbar button{padding:6px 8px;font-size:12px}
+.site{border-top:1px solid #e5e7eb;padding:10px 0}.site:first-child{border-top:0}.site strong{display:block}
+.site-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.site-title{display:flex;align-items:center;gap:7px;min-width:0}
+.muted{color:#616975;font-size:12px;white-space:pre-wrap}.runtime-info{margin-top:7px;color:#4b5563;font-size:12px;white-space:pre-wrap}
+.hint{font-size:11px;color:#687180;background:#f7f8fa;border-radius:5px;padding:7px;margin-bottom:4px}
+.actions{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+.pill{display:inline-block;padding:2px 6px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+.pill.ready{background:#e7f5ea;color:#226331}.pill.pending{background:#fff3cd;color:#7a5b00}.pill.error{background:#fde8e8;color:#8d2525}.pill.disabled{background:#eceff3;color:#5d6673}
